@@ -1,6 +1,13 @@
-// OPTIONAL DEMO: the one-hour lookback is illustrative, not a recommendation.
-// Replace it with the measured maximum duplicate-arrival interval. If the
-// lookback is too short, records for the same MessageId can remain duplicated.
+// PURPOSE: Offer consumers one latest controller row per MessageId.
+//
+// A materialized view is a continuously maintained summary. arg_max selects
+// the row with the newest ProcessedAt value for each MessageId, which is useful
+// after a retry or backfill creates another version of the same message.
+//
+// OPTIONAL DEMO: the one-hour lookback limits how far the service searches for
+// another version. It is only an example, not a production recommendation. Set
+// it from measured late-arrival behavior. If it is too short, duplicates can
+// remain; if it is unnecessarily long, maintenance uses more resources.
 .create materialized-view with (
     backfill=false,
     lookback=1h,

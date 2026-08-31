@@ -1,5 +1,12 @@
-// Ingests the repository's public synthetic JSON Lines fixture.
-// Run after 01 through 06 have been deployed and the repository is public.
+// PURPOSE: Load six safe, synthetic messages for the demonstration.
+//
+// Run this after files 01 through 06. Eventhouse downloads the public sample
+// file, applies RawTelemetryJsonMapping, and adds the messages to RawTelemetry.
+// The update policies then run automatically and populate the clean tables and
+// drift observations. The sample includes normal data, new fields, an
+// incompatible value, multiple zones, and an empty zone list.
+//
+// multijson means the source contains one complete JSON object per line.
 .ingest into table RawTelemetry
 ('https://raw.githubusercontent.com/matthieulefebvre-publiccollab/eventhouse-schema-drift-reference/main/samples/telemetry.jsonl')
 with (

@@ -1,5 +1,12 @@
-// Maps stable envelope fields and retains the rest of the source document.
-// DropMappedFields removes the envelope paths already mapped above from RawRecord.
+// PURPOSE: Explain how fields in incoming JSON fill the RawTelemetry columns.
+//
+// Each Path points to a named value in the incoming message. For example,
+// $.id means "take the value named id at the top of the JSON document."
+//
+// The final rule copies the whole document into RawRecord, then
+// DropMappedFields removes values already placed in dedicated columns. This
+// avoids keeping two copies of the known envelope values while preserving the
+// payload and any future fields that do not yet have columns.
 .create-or-alter table RawTelemetry ingestion json mapping 'RawTelemetryJsonMapping'
 ```
 [

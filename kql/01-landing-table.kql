@@ -1,13 +1,20 @@
-// Creates the raw landing table used by every demo policy.
-// Run in a disposable Microsoft Fabric KQL database.
+// PURPOSE: Create the first table that receives every incoming message.
+//
+// Think of RawTelemetry as the unchanged inbox for telemetry. Important values
+// used to identify and route a message have their own columns. RawRecord keeps
+// the remaining JSON so new or unexpected fields are not lost.
+//
+// Keeping this original record provides a recovery point if later processing
+// fails or a newly discovered field must be processed again. Run this file in
+// a disposable Microsoft Fabric KQL database before the other numbered files.
 .create-merge table RawTelemetry (
-    MessageId:guid,
-    EventTimestamp:datetime,
-    MessageType:string,
-    SourceType:string,
-    TenantId:string,
-    AssetId:string,
-    DeviceId:string,
-    SchemaVersion:int,
-    RawRecord:dynamic
+    MessageId:guid,          // Unique identity supplied with the message.
+    EventTimestamp:datetime,// Time at which the source says the event occurred.
+    MessageType:string,     // Broad category, such as telemetry.
+    SourceType:string,      // Device family used to choose the right processing path.
+    TenantId:string,        // Customer or organizational boundary.
+    AssetId:string,         // Equipment that produced the measurement.
+    DeviceId:string,        // Sending device identity.
+    SchemaVersion:int,      // Version stated by the message producer.
+    RawRecord:dynamic       // Remaining flexible JSON, preserved without fixed columns.
 )

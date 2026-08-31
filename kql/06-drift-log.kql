@@ -1,4 +1,13 @@
-// Drift observations are append-only. Summarize them for review at query time.
+// PURPOSE: Notice new telemetry fields without stopping incoming data.
+//
+// "Schema drift" means the incoming JSON contains a field that is not on the
+// approved list for that device family. Each observation records what appeared,
+// its value type, one sample value, and when it was seen. This evidence helps a
+// data owner decide whether the field deserves its own reporting column.
+//
+// Observations are append-only: seeing the same field in 100 messages creates
+// 100 evidence rows. ReviewTelemetryDrift at the end turns those rows into a
+// concise review list with first seen, last seen, count, and observed types.
 .create-merge table TelemetryDriftObservations (
     MessageId:guid,
     EventTimestamp:datetime,
@@ -9,6 +18,7 @@
     DetectedAt:datetime
 )
 
+// Build one observation for every field not found in the approved list.
 .create-or-alter function with (folder='SchemaDriftReference') DetectTelemetryDrift() {
     RawTelemetry
     | where MessageType == 'telemetry'
@@ -18,6 +28,7 @@
         SourceType == 'gateway', dynamic(['hdop', 'primaryVoltage', 'speed', 'fixType', 'signalStrength']),
         SourceType == 'cooling_unit', dynamic(['controllerStatus', 'fuelLevelPercent', 'ambientTemperature', 'numberOfZones', 'zones']),
         dynamic([]))
+    // Turn the list of field names into individual rows for comparison.
     | mv-expand FieldName = bag_keys(Telemetry) to typeof(string)
     | where not(set_has_element(KnownKeys, FieldName))
     | extend SampleValue = Telemetry[FieldName]
@@ -31,11 +42,14 @@
         DetectedAt=now()
 }
 
+// Run drift detection automatically whenever a raw message arrives. A failure
+// here does not reject the original message because IsTransactional is false.
 .alter table TelemetryDriftObservations policy update
 ```
 [{"IsEnabled":true,"Source":"RawTelemetry","Query":"DetectTelemetryDrift()","IsTransactional":false,"PropagateIngestionProperties":true}]
 ```
 
+// Present repeated evidence as one business-review row per source and field.
 .create-or-alter function with (folder='SchemaDriftReference') ReviewTelemetryDrift() {
     TelemetryDriftObservations
     | summarize

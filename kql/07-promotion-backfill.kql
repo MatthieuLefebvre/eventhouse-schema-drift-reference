@@ -1,9 +1,19 @@
-// EXAMPLE ONLY: promote serviceCountdownHours for controller telemetry.
-// Review types and run each command separately. Adding a column appends it to the
-// physical schema, so the revised function projects it after existing columns.
+// PURPOSE: Show how an approved new field becomes a normal reporting column.
+//
+// EXAMPLE ONLY: serviceCountdownHours was first preserved in ResidualTelemetry
+// and recorded by drift detection. Assume a data owner has now confirmed its
+// meaning and approved it as a number.
+//
+// Run each section separately. First add the empty column, then teach the saved
+// transformation how to fill it, verify the result, and finally process older
+// raw messages for a carefully selected date range.
 
+// Step 1: Add the approved column without removing existing columns or data.
 .alter-merge table ControllerTelemetry (ServiceCountdownHours:real)
 
+// Step 2: Revise the controller transformation. The promoted field now has its
+// own column and is removed from ResidualTelemetry to avoid keeping two copies.
+// Because Kusto adds new columns at the end, it is projected last here too.
 .create-or-alter function with (folder='SchemaDriftReference') TransformControllerTelemetry() {
     RawTelemetry
     | where MessageType == 'telemetry' and SourceType == 'controller'
@@ -24,14 +34,19 @@
         ServiceCountdownHours=toreal(Telemetry.serviceCountdownHours)
 }
 
-// Confirm exact schema and order before new ingestion reaches the policy.
+// Step 3: Compare the function's output with the table before relying on it.
+// Both the data types and column order must match for automatic processing.
 TransformControllerTelemetry | getschema
 .show table ControllerTelemetry schema as json
 
-// Bounded replay from raw data populates a complete new target record. It does
-// not mutate old extents and therefore creates another version of MessageId.
-// Use a deduplication view or migrate into a replacement table for single-row
-// physical history. Repeat only after checking the selected MessageIds.
+// Step 4: Backfill means applying the revised logic to older raw messages.
+// This example processes January 2026 only. Change the dates after reviewing
+// the exact period that needs repair.
+//
+// Eventhouse adds these results as new rows; it does not edit old rows in place.
+// The same MessageId can therefore have an old and a new version. Use a
+// latest-record view or a replacement-table migration when consumers require
+// exactly one visible version. Do not rerun blindly.
 .set-or-append ControllerTelemetry with (tags='["schema-promotion:serviceCountdownHours:v1"]') <|
     RawTelemetry
     | where MessageType == 'telemetry' and SourceType == 'controller'

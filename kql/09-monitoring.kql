@@ -1,26 +1,37 @@
-// Update-policy configuration and failures.
+// PURPOSE: Confirm that automatic processing is configured and healthy.
+//
+// Run each section independently. The first commands show whether each policy
+// is enabled and which raw table and saved query it uses.
 .show table ControllerTelemetry policy update
 .show table GatewayTelemetry policy update
 .show table CoolingUnitTelemetry policy update
 .show table CoolingUnitZones policy update
 .show table TelemetryDriftObservations policy update
 
+// Show automatic-processing failures from the last 24 hours. A result means an
+// operator should inspect the Details column, repair the transformation, and
+// replay the affected raw messages. No rows is the healthy expected result.
 .show ingestion failures
 | where FailedOn > ago(24h) and OriginatesFromUpdatePolicy == true
 | project FailedOn, Table, Details, RootActivityId, OperationId
 | order by FailedOn desc
 
-// Completeness checks by source type and hourly event time.
+// Count raw messages by device family and hour. This is the starting point for
+// checking whether downstream tables received the expected number of rows.
 RawTelemetry
 | summarize Raw=count() by SourceType, Hour=bin(EventTimestamp, 1h)
 | order by Hour desc, SourceType asc
 
+// Count rows in the three main clean tables using the same hourly grouping.
+// Compare this result with the raw counts above. Zone rows are excluded because
+// one cooling-unit message can correctly create several zone rows.
 union
     (ControllerTelemetry | summarize Target=count() by SourceType='controller', Hour=bin(EventTimestamp, 1h)),
     (GatewayTelemetry | summarize Target=count() by SourceType='gateway', Hour=bin(EventTimestamp, 1h)),
     (CoolingUnitTelemetry | summarize Target=count() by SourceType='cooling_unit', Hour=bin(EventTimestamp, 1h))
 | order by Hour desc, SourceType asc
 
-// OneLake availability is represented by a table mirroring policy.
+// Show whether this ordinary table is being copied to OneLake and whether those
+// copy operations are current. OneLake calls this feature a mirroring policy.
 .show table ControllerTelemetry policy mirroring
 .show table ControllerTelemetry mirroring operations

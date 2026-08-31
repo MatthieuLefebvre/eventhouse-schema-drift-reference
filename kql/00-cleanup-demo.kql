@@ -1,5 +1,13 @@
-// DESTRUCTIVE: removes all objects created by this demo.
-// Run only in a disposable database and only when teardown is intended.
+// PURPOSE: Reset the demonstration environment.
+//
+// WARNING: This file permanently removes every policy, saved query, summary
+// view, and table created by this project. Removing a table also removes the
+// data stored in it. Run this file only in a demonstration database that can
+// safely be rebuilt from scratch.
+//
+// The policies are removed first so no automatic processing is left pointing
+// at objects that are about to be deleted. The remaining commands then remove
+// the saved queries, optional latest-record view, and tables.
 .delete table TelemetryDriftObservations policy update
 .delete table CoolingUnitZones policy update
 .delete table CoolingUnitTelemetry policy update

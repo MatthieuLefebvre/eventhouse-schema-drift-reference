@@ -1,4 +1,18 @@
-// Explicit projections make each function's output schema stable.
+// PURPOSE: Define how raw JSON becomes clear, typed business columns.
+//
+// These functions are saved queries. They do not run on a schedule by
+// themselves; the policies in the next file run them automatically.
+//
+// Each function follows the same plain-language steps:
+// 1. Keep messages for one device family.
+// 2. Open the telemetry section of the JSON.
+// 3. Convert approved values to their expected type, such as number or text.
+// 4. Keep all other values in a residual JSON column.
+//
+// Naming every output column is important. A surprise input field therefore
+// changes only the residual data, not the shape expected by the target table.
+
+// Convert controller messages into one row per message.
 .create-or-alter function with (folder='SchemaDriftReference') TransformControllerTelemetry() {
     RawTelemetry
     | where MessageType == 'telemetry' and SourceType == 'controller'
@@ -14,10 +28,12 @@
         ControllerStatus=tostring(Telemetry.controllerStatus),
         EngineHours=toreal(Telemetry.engineHours),
         FuelConsumption=toreal(Telemetry.fuelConsumption),
+        // Remove already-approved fields; anything left is still preserved here.
         ResidualTelemetry=bag_remove_keys(Telemetry, dynamic(['controllerStatus', 'engineHours', 'fuelConsumption'])),
         ProcessedAt=now()
 }
 
+    // Convert gateway messages into one row per message.
 .create-or-alter function with (folder='SchemaDriftReference') TransformGatewayTelemetry() {
     RawTelemetry
     | where MessageType == 'telemetry' and SourceType == 'gateway'
@@ -35,10 +51,12 @@
         Speed=toreal(Telemetry.speed),
         FixType=tostring(Telemetry.fixType),
         SignalStrength=toint(Telemetry.signalStrength),
+        // Unknown gateway fields remain available for review and future promotion.
         ResidualTelemetry=bag_remove_keys(Telemetry, dynamic(['hdop', 'primaryVoltage', 'speed', 'fixType', 'signalStrength'])),
         ProcessedAt=now()
 }
 
+    // Convert the main part of a cooling-unit message into one row.
 .create-or-alter function with (folder='SchemaDriftReference') TransformCoolingUnitTelemetry() {
     RawTelemetry
     | where MessageType == 'telemetry' and SourceType == 'cooling_unit'
@@ -55,10 +73,13 @@
         FuelLevelPercent=toreal(Telemetry.fuelLevelPercent),
         AmbientTemperature=toreal(Telemetry.ambientTemperature),
         NumberOfZones=toint(Telemetry.numberOfZones),
+        // Zones have their own table, so they are also removed from this residual.
         ResidualTelemetry=bag_remove_keys(Telemetry, dynamic(['controllerStatus', 'fuelLevelPercent', 'ambientTemperature', 'numberOfZones', 'zones'])),
         ProcessedAt=now()
 }
 
+    // Convert the zones array into one row for each zone. mv-expand is the KQL
+    // operation that repeats the parent message details for every array item.
 .create-or-alter function with (folder='SchemaDriftReference') TransformCoolingUnitZones() {
     RawTelemetry
     | where MessageType == 'telemetry' and SourceType == 'cooling_unit'
@@ -77,6 +98,7 @@
         ReturnAirTemperature=toreal(Zone.returnAirTemperature),
         DischargeAirTemperature=toreal(Zone.dischargeAirTemperature),
         SetpointTemperature=toreal(Zone.setpointTemperature),
+        // Preserve any new zone-level field that is not listed above.
         ResidualZone=bag_remove_keys(Zone, dynamic(['zone', 'isDoorOpen', 'isActive', 'operatingMode', 'returnAirTemperature', 'dischargeAirTemperature', 'setpointTemperature'])),
         ProcessedAt=now()
 }

@@ -1,4 +1,15 @@
-// Fixed-schema ordinary tables produced by update policies.
+// PURPOSE: Create clean tables for common reporting and analytics.
+//
+// Unlike RawTelemetry, these tables have predictable columns for values that
+// the business has approved and understands. Automatic update policies will
+// fill them whenever a new raw message arrives.
+//
+// ResidualTelemetry and ResidualZone are safety-net JSON columns. They retain
+// fields that are present in a message but have not yet been promoted to a
+// dedicated column. This is how a new field can arrive without breaking the
+// table or disappearing from the data.
+
+// One row represents one controller message.
 .create-merge table ControllerTelemetry (
     MessageId:guid,
     EventTimestamp:datetime,
@@ -13,6 +24,7 @@
     ProcessedAt:datetime
 )
 
+// One row represents one gateway message.
 .create-merge table GatewayTelemetry (
     MessageId:guid,
     EventTimestamp:datetime,
@@ -29,6 +41,7 @@
     ProcessedAt:datetime
 )
 
+// One row represents the main measurements from one cooling-unit message.
 .create-merge table CoolingUnitTelemetry (
     MessageId:guid,
     EventTimestamp:datetime,
@@ -44,6 +57,9 @@
     ProcessedAt:datetime
 )
 
+// One cooling-unit message can describe several zones. This table stores one
+// row per zone instead of creating a changing set of Zone1, Zone2, and Zone3
+// columns. That keeps the design stable when the number of zones varies.
 .create-merge table CoolingUnitZones (
     MessageId:guid,
     EventTimestamp:datetime,

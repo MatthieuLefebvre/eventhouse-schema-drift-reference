@@ -1,19 +1,34 @@
-// Nontransactional policies preserve RawTelemetry ingestion if a target transform fails.
+// PURPOSE: Turn the saved transformation queries into automatic processing.
+//
+// An update policy runs when new rows arrive in RawTelemetry. Each policy calls
+// one function and writes its result to the table named above the policy.
+// Several policies can react to the same incoming message, so the main message,
+// its zones, and drift observations can be produced independently.
+//
+// IsTransactional:false is a deliberate availability choice. If a conversion
+// fails, the original message still reaches RawTelemetry and can be replayed,
+// but the affected clean table may temporarily miss that row. Production use
+// therefore requires the failure monitoring shown in 09-monitoring.kql.
+
+// Automatically populate ControllerTelemetry from matching raw messages.
 .alter table ControllerTelemetry policy update
 ```
 [{"IsEnabled":true,"Source":"RawTelemetry","Query":"TransformControllerTelemetry()","IsTransactional":false,"PropagateIngestionProperties":true}]
 ```
 
+// Automatically populate GatewayTelemetry from matching raw messages.
 .alter table GatewayTelemetry policy update
 ```
 [{"IsEnabled":true,"Source":"RawTelemetry","Query":"TransformGatewayTelemetry()","IsTransactional":false,"PropagateIngestionProperties":true}]
 ```
 
+// Automatically populate the main cooling-unit table.
 .alter table CoolingUnitTelemetry policy update
 ```
 [{"IsEnabled":true,"Source":"RawTelemetry","Query":"TransformCoolingUnitTelemetry()","IsTransactional":false,"PropagateIngestionProperties":true}]
 ```
 
+// Independently create one child row for every cooling-unit zone.
 .alter table CoolingUnitZones policy update
 ```
 [{"IsEnabled":true,"Source":"RawTelemetry","Query":"TransformCoolingUnitZones()","IsTransactional":false,"PropagateIngestionProperties":true}]
