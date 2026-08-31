@@ -1,49 +1,51 @@
 # Presentation Notes
 
-## 1. Schema drift without bulk export
+Use the detailed [presenter demo script](../docs/demo-script.md) for the live commands and expected results.
 
-Set expectations: this is a reusable implementation pattern, not an automatic-schema promise.
+## 1. Move schema drift from Spark to Eventhouse
 
-## 2. The customer problem
+Set expectations: the goal is to prove a reusable KQL pattern, not promise automatic, ungoverned schema creation.
 
-Explain that Kusto connector reads can use the export path. The concern is concurrent bulk transformation, not ordinary interactive querying.
+## 2. Start with today's Spark journey
 
-## 3. Current data path
+Walk left to right. Eventhouse already owns the data, but the notebook exports it to infer and flatten it. Keep the discussion specific to recurring telemetry processing rather than criticizing Spark broadly.
 
-Watermarks, buffers, target-schema reads, and merge jobs are secondary complexity created after data leaves Eventhouse.
+## 3. Why the current loop is less efficient
 
-## 4. Stable-schema principle
+Separate direct cost from operational complexity. Export and Spark startup consume resources; watermarks, buffers, and merges also create more failure and recovery states.
 
-The target contract never changes merely because an input key appears. Unknown data remains queryable in the residual bag.
+## 4. What the demo builds instead
 
-## 5. Target architecture
+Use the architecture to identify the raw replay point, typed tables, child rows, and drift evidence. Ordinary target tables can optionally be mirrored to OneLake.
 
-Each target is an ordinary table. Policies run independently and execution order is not guaranteed or required.
+## 5. The seven-step demo journey
 
-## 6. Per-record processing
+Preview exactly what the audience will see. This makes the later code feel like a sequence of proofs instead of disconnected KQL files.
 
-Casting failures generally produce nulls; retain raw data so compatibility decisions can be revised and replayed.
+## 6. Technique 1: preserve future fields
 
-## 7. Arrays become child rows
+Explain `Path:"$"` as the whole JSON document. `DropMappedFields` removes envelope values already mapped to physical columns while preserving the rest.
 
-Avoid runtime-generated columns. Confirm array amplification and identity semantics with the customer.
+## 7. Technique 2: guarantee a fixed output
 
-## 8. Drift review
+This is the decisive drift-tolerance pattern. Explicit projection fixes the output contract; `bag_remove_keys` preserves every unknown value in the residual bag.
 
-Seeing a key once is insufficient evidence for physical promotion.
+## 8. Technique 3: remove the scheduled export
 
-## 9. Promotion and backfill
+An update policy reacts to ingestion and calls a stored function. Explain the deliberate `IsTransactional:false` availability tradeoff and required replay monitoring.
 
-Extents are immutable. Appended replay versions need a latest-record view or a replacement-table migration.
+## 9. Technique 4: detect keys and expand arrays
 
-## 10. OneLake role
+The same row-expansion primitive handles both unknown key names and array items. No runtime-generated columns are required.
 
-Mirrored Delta can be a useful transition, but it has adaptive batching and schema-operation constraints.
+## 10. Live proof: what the customer should see
 
-## 11. Production gates
+Pause on each expected result. The strongest proof is that a new field reaches the residual and drift review while normal typed processing continues.
 
-Benchmark on representative payload size, rate, concurrency, array size, retention, and duplicates.
+## 11. Governed promotion stays simple
 
-## 12. Recommended next steps
+Promotion is not automatic. Add the column, revise the function, compare schemas, and replay a bounded interval. Appended versions require explicit consumer semantics.
 
-Start with one source type, retain rollback coverage, and expand only after completeness and capacity gates pass.
+## 12. Adopt with evidence, not promises
+
+Close with a one-source shadow test and measurable gates: CPU, latency, completeness, replay, array amplification, and duplicate behavior.

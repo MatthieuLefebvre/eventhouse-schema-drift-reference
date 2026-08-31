@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -23,18 +24,18 @@ MIST = RGBColor(239, 245, 247)
 WHITE = RGBColor(255, 255, 255)
 
 SLIDES = [
-    ("Schema drift without bulk export", ["A reusable Microsoft Fabric Eventhouse reference", "Stable typed tables, residual JSON, and reviewed promotion"]),
-    ("The customer problem", ["IoT payloads evolve independently of analytics schemas", "Spark schema inference requires bulk reads from Eventhouse", "Concurrent connector reads can consume export capacity", "Drift approval pauses batches and creates operational buffers"]),
-    ("Current data path", ["Event Hub to Eventhouse landing table", "Kusto Spark connector invokes the export path", "Spark infers, flattens, compares, and buffers", "Delta targets depend on watermarks and replay orchestration"]),
-    ("Stable-schema principle", ["Project known fields explicitly", "Remove known keys from the telemetry bag", "Store the remainder as ResidualTelemetry", "A new key changes data, not the policy output schema"]),
-    ("Target architecture", ["One raw table triggers source-specific update policies", "Ordinary typed tables remain available for OneLake mirroring", "A separate policy records unknown fields", "Routine telemetry stays inside Eventhouse"]),
-    ("Per-record processing", ["Route by source type", "Cast known values to the target contract", "Preserve unknown values in a dynamic residual", "Record field path, observed type, sample, and event time"]),
-    ("Arrays become child rows", ["Variable zone arrays do not become variable columns", "mv-expand emits one row per zone", "Original zone identity is retained", "Empty arrays intentionally emit no child rows"]),
-    ("Drift review", ["Aggregate append-only observations by source and path", "Profile type stability, null rate, and cardinality", "Promote only fields with agreed semantics and ownership", "Keep sparse or unstable fields dynamic"]),
-    ("Promotion and backfill", ["Add the physical column", "Revise and schema-check the stored function", "Monitor new ingestion", "Replay a bounded raw interval", "Deduplicate appended versions or migrate to a replacement table"]),
-    ("OneLake role", ["Mirror ordinary Eventhouse tables for other Fabric engines", "Use mirrored Delta as a transitional Spark quick win", "Validate adaptive batching latency", "Adding columns is supported; renaming and type alteration are constrained"]),
-    ("Production gates", ["Peak-load CPU and ingestion latency", "Target completeness and replay", "Malformed and type-conflicted values", "Array amplification", "Duplicate arrival window and materialized-view lookback"]),
-    ("Recommended next steps", ["Deploy the demo in a disposable KQL database", "Replace demo contracts with production metadata", "Shadow one source type", "Benchmark at peak concurrency", "Cut over incrementally and retain raw replay coverage"]),
+    {"title": "Move schema drift from Spark to Eventhouse", "bullets": ["A step-by-step customer demo", "Prove stable schemas, preserved drift, and governed promotion"]},
+    {"title": "Start with today's Spark journey", "bullets": ["Telemetry lands in Eventhouse", "A notebook exports the batch through the Kusto connector", "Spark infers JSON, flattens, compares schemas, and manages buffers", "Delta writes require watermarks and merge orchestration"], "visual": "spark"},
+    {"title": "Why the current loop is less efficient", "bullets": ["Routine processing moves data out of its serving engine", "Every run pays Spark startup and JSON inference cost", "Parallel bulk reads compete for export capacity", "Buffers, watermarks, and merge jobs increase operational state"], "visual": "cost"},
+    {"title": "What the demo builds instead", "bullets": ["Raw ingestion remains the replay point", "Update policies create stable typed tables", "Unknown values remain in residual JSON", "A drift policy creates review evidence", "Arrays become child rows"], "visual": "architecture"},
+    {"title": "The seven-step demo journey", "bullets": ["1  Raw inbox", "2  DropMappedFields mapping", "3  Stable target tables", "4  KQL transform functions", "5  Automatic policies and drift detection", "6  Ingest and prove", "7  Promote and backfill"], "visual": "journey"},
+    {"title": "Technique 1: preserve future fields", "bullets": ["Map stable envelope values to columns", "Keep the rest of the JSON in RawRecord", "A producer can add a field without changing the landing table"], "code": '{"Column":"RawRecord",\n "Properties":{"Path":"$",\n "Transform":"DropMappedFields"}}'},
+    {"title": "Technique 2: guarantee a fixed output", "bullets": ["Name and cast every approved field", "Remove known keys from the original bag", "Anything new remains in ResidualTelemetry"], "code": "ControllerStatus=tostring(Telemetry.controllerStatus),\nEngineHours=toreal(Telemetry.engineHours),\nResidualTelemetry=bag_remove_keys(\n  Telemetry, dynamic(['controllerStatus',\n  'engineHours', 'fuelConsumption']))"},
+    {"title": "Technique 3: remove the scheduled export", "bullets": ["An update policy reacts when raw data arrives", "The policy calls the stored KQL function", "IsTransactional:false keeps raw ingestion available for replay"], "code": '{"Source":"RawTelemetry",\n "Query":"TransformControllerTelemetry()",\n "IsTransactional":false}'},
+    {"title": "Technique 4: detect keys and expand arrays", "bullets": ["bag_keys lists fields that actually arrived", "set_has_element compares them with the approved list", "mv-expand turns unknown keys or array items into rows"], "code": "| mv-expand FieldName=bag_keys(Telemetry)\n| where not(set_has_element(KnownKeys, FieldName))\n\n| mv-expand Zone=Zones"},
+    {"title": "Live proof: what the customer should see", "bullets": ["Six raw messages route to three typed tables", "A new controller field remains in residual JSON", "Drift review identifies new paths and observed types", "Two zones create two child rows; an empty array creates none", "An incompatible value is still recoverable from RawRecord"], "visual": "proof"},
+    {"title": "Governed promotion stays simple", "bullets": ["Add the approved column", "Revise the stored function and residual key list", "Compare function schema with the table", "Replay only the approved raw interval", "Handle appended versions explicitly"], "code": ".alter-merge table ControllerTelemetry\n  (ServiceCountdownHours:real)\n\nTransformControllerTelemetry | getschema\n\n.set-or-append ControllerTelemetry <| ..."},
+    {"title": "Adopt with evidence, not promises", "bullets": ["Shadow one source type first", "Benchmark policy CPU, ingestion latency, and array amplification", "Validate failure monitoring and bounded replay", "Measure duplicate arrivals before choosing a lookback", "Retire Spark bulk reads only after completeness gates pass"], "visual": "adopt"},
 ]
 
 
@@ -75,7 +76,7 @@ def add_header(slide, title, number):
 
 
 def add_bullets(slide, bullets):
-    shape = slide.shapes.add_textbox(Inches(0.95), Inches(1.55), Inches(7.15), Inches(4.95))
+    shape = slide.shapes.add_textbox(Inches(0.95), Inches(1.55), Inches(7.0), Inches(4.95))
     frame = shape.text_frame
     frame.clear()
     for index, bullet in enumerate(bullets):
@@ -83,23 +84,42 @@ def add_bullets(slide, bullets):
         paragraph.text = bullet
         paragraph.level = 0
         paragraph.font.name = "Aptos"
-        paragraph.font.size = Pt(22)
+        paragraph.font.size = Pt(20 if len(bullets) > 5 else 22)
         paragraph.font.color.rgb = INK
         paragraph.space_after = Pt(18)
         paragraph.text = f"•  {bullet}"
 
 
-def add_visual(slide, number):
+def add_code(slide, code):
+    panel = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(8.25), Inches(1.55), Inches(4.45), Inches(4.8))
+    panel.fill.solid()
+    panel.fill.fore_color.rgb = INK
+    panel.line.color.rgb = RGBColor(56, 72, 82)
+    frame = panel.text_frame
+    frame.clear()
+    frame.margin_left = Inches(0.25)
+    frame.margin_right = Inches(0.2)
+    frame.margin_top = Inches(0.25)
+    paragraph = frame.paragraphs[0]
+    paragraph.text = code
+    paragraph.font.name = "Cascadia Mono"
+    paragraph.font.size = Pt(14)
+    paragraph.font.color.rgb = RGBColor(220, 238, 241)
+
+
+def add_visual(slide, visual):
     panel = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(8.55), Inches(1.5), Inches(4.1), Inches(4.95))
     panel.fill.solid()
     panel.fill.fore_color.rgb = MIST
     panel.line.color.rgb = RGBColor(211, 224, 228)
     labels = {
-        2: ("EXPORT", RED), 3: ("FIXED", BLUE), 4: ("NATIVE", TEAL),
-        5: ("CAST", BLUE), 6: ("ROWS", TEAL), 7: ("REVIEW", AMBER),
-        8: ("PROMOTE", AMBER), 9: ("DELTA", TEAL), 10: ("TEST", RED), 11: ("ADOPT", BLUE),
+        "spark": ("EXPORT → SPARK", RED),
+        "cost": ("MOVE + INFER + MERGE", AMBER),
+        "journey": ("BUILD → PROVE → PROMOTE", BLUE),
+        "proof": ("DRIFT SURVIVES", TEAL),
+        "adopt": ("SHADOW → BENCHMARK", BLUE),
     }
-    word, color = labels.get(number, ("EVENTHOUSE", BLUE))
+    word, color = labels.get(visual, ("EVENTHOUSE", BLUE))
     badge = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(9.15), Inches(3.1), Inches(2.9), Inches(1.15))
     badge.fill.solid()
     badge.fill.fore_color.rgb = color
@@ -113,6 +133,11 @@ def add_visual(slide, number):
     paragraph.font.size = Pt(20)
     paragraph.font.bold = True
     paragraph.font.color.rgb = WHITE
+
+
+def add_architecture(slide):
+    slide.shapes.add_picture(str(ARCHITECTURE_IMAGE), Inches(8.15), Inches(1.45), width=Inches(4.65), height=Inches(3.95))
+    add_textbox(slide, 8.25, 5.65, 4.35, 0.55, "No routine telemetry export", 17, TEAL, True)
 
 
 def build_architecture_image():
@@ -144,11 +169,13 @@ def build_architecture_image():
     image.save(ARCHITECTURE_IMAGE)
 
 
-def build_presentation():
+def build_presentation(output: Path = OUTPUT):
     presentation = Presentation()
     presentation.slide_width = Inches(13.333)
     presentation.slide_height = Inches(7.5)
-    for number, (title, bullets) in enumerate(SLIDES, 1):
+    for number, content in enumerate(SLIDES, 1):
+        title = content["title"]
+        bullets = content["bullets"]
         slide = presentation.slides.add_slide(presentation.slide_layouts[6])
         background = slide.background.fill
         background.solid()
@@ -164,13 +191,21 @@ def build_presentation():
         else:
             add_header(slide, title, number)
             add_bullets(slide, bullets)
-            add_visual(slide, number)
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    presentation.save(OUTPUT)
+            if "code" in content:
+                add_code(slide, content["code"])
+            elif content.get("visual") == "architecture":
+                add_architecture(slide)
+            else:
+                add_visual(slide, content.get("visual"))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    presentation.save(output)
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Build the customer demo presentation.")
+    parser.add_argument("--output", type=Path, default=OUTPUT)
+    arguments = parser.parse_args()
     build_architecture_image()
-    build_presentation()
-    print(f"wrote {OUTPUT.relative_to(ROOT)}")
+    build_presentation(arguments.output)
+    print(f"wrote {arguments.output}")
     print(f"wrote {ARCHITECTURE_IMAGE.relative_to(ROOT)}")
