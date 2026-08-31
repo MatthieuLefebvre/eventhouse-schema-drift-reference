@@ -1,0 +1,53 @@
+// EXAMPLE ONLY: promote serviceCountdownHours for controller telemetry.
+// Review types and run each command separately. Adding a column appends it to the
+// physical schema, so the revised function projects it after existing columns.
+
+.alter-merge table ControllerTelemetry (ServiceCountdownHours:real)
+
+.create-or-alter function with (folder='SchemaDriftReference') TransformControllerTelemetry() {
+    RawTelemetry
+    | where MessageType == 'telemetry' and SourceType == 'controller'
+    | extend Telemetry = todynamic(RawRecord.payload.telemetry)
+    | where isnotnull(Telemetry)
+    | project
+        MessageId,
+        EventTimestamp,
+        TenantId,
+        AssetId,
+        DeviceId,
+        SchemaVersion,
+        ControllerStatus=tostring(Telemetry.controllerStatus),
+        EngineHours=toreal(Telemetry.engineHours),
+        FuelConsumption=toreal(Telemetry.fuelConsumption),
+        ResidualTelemetry=bag_remove_keys(Telemetry, dynamic(['controllerStatus', 'engineHours', 'fuelConsumption', 'serviceCountdownHours'])),
+        ProcessedAt=now(),
+        ServiceCountdownHours=toreal(Telemetry.serviceCountdownHours)
+}
+
+// Confirm exact schema and order before new ingestion reaches the policy.
+TransformControllerTelemetry | getschema
+.show table ControllerTelemetry schema as json
+
+// Bounded replay from raw data populates a complete new target record. It does
+// not mutate old extents and therefore creates another version of MessageId.
+// Use a deduplication view or migrate into a replacement table for single-row
+// physical history. Repeat only after checking the selected MessageIds.
+.set-or-append ControllerTelemetry with (tags='["schema-promotion:serviceCountdownHours:v1"]') <|
+    RawTelemetry
+    | where MessageType == 'telemetry' and SourceType == 'controller'
+    | where EventTimestamp between (datetime(2026-01-01) .. datetime(2026-01-31))
+    | extend Telemetry = todynamic(RawRecord.payload.telemetry)
+    | where isnotnull(Telemetry.serviceCountdownHours)
+    | project
+        MessageId,
+        EventTimestamp,
+        TenantId,
+        AssetId,
+        DeviceId,
+        SchemaVersion,
+        ControllerStatus=tostring(Telemetry.controllerStatus),
+        EngineHours=toreal(Telemetry.engineHours),
+        FuelConsumption=toreal(Telemetry.fuelConsumption),
+        ResidualTelemetry=bag_remove_keys(Telemetry, dynamic(['controllerStatus', 'engineHours', 'fuelConsumption', 'serviceCountdownHours'])),
+        ProcessedAt=now(),
+        ServiceCountdownHours=toreal(Telemetry.serviceCountdownHours)

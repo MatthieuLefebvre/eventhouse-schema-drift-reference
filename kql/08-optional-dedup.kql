@@ -1,0 +1,13 @@
+// OPTIONAL DEMO: the one-hour lookback is illustrative, not a recommendation.
+// Replace it with the measured maximum duplicate-arrival interval. If the
+// lookback is too short, records for the same MessageId can remain duplicated.
+.create materialized-view with (
+    backfill=false,
+    lookback=1h,
+    autoUpdateSchema=true,
+    docString='Demo latest record per message ID; validate lookback before production use'
+) ControllerTelemetryLatest on table ControllerTelemetry
+{
+    ControllerTelemetry
+    | summarize arg_max(ProcessedAt, *) by MessageId
+}

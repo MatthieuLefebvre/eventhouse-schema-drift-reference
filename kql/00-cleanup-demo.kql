@@ -1,0 +1,20 @@
+// DESTRUCTIVE: removes all objects created by this demo.
+// Run only in a disposable database and only when teardown is intended.
+.delete table TelemetryDriftObservations policy update
+.delete table CoolingUnitZones policy update
+.delete table CoolingUnitTelemetry policy update
+.delete table GatewayTelemetry policy update
+.delete table ControllerTelemetry policy update
+.drop function ReviewTelemetryDrift ifexists
+.drop function DetectTelemetryDrift ifexists
+.drop function TransformCoolingUnitZones ifexists
+.drop function TransformCoolingUnitTelemetry ifexists
+.drop function TransformGatewayTelemetry ifexists
+.drop function TransformControllerTelemetry ifexists
+.drop materialized-view ControllerTelemetryLatest ifexists
+.drop table TelemetryDriftObservations ifexists
+.drop table CoolingUnitZones ifexists
+.drop table CoolingUnitTelemetry ifexists
+.drop table GatewayTelemetry ifexists
+.drop table ControllerTelemetry ifexists
+.drop table RawTelemetry ifexists

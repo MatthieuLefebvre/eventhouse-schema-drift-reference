@@ -1,0 +1,82 @@
+// Explicit projections make each function's output schema stable.
+.create-or-alter function with (folder='SchemaDriftReference') TransformControllerTelemetry() {
+    RawTelemetry
+    | where MessageType == 'telemetry' and SourceType == 'controller'
+    | extend Telemetry = todynamic(RawRecord.payload.telemetry)
+    | where isnotnull(Telemetry)
+    | project
+        MessageId,
+        EventTimestamp,
+        TenantId,
+        AssetId,
+        DeviceId,
+        SchemaVersion,
+        ControllerStatus=tostring(Telemetry.controllerStatus),
+        EngineHours=toreal(Telemetry.engineHours),
+        FuelConsumption=toreal(Telemetry.fuelConsumption),
+        ResidualTelemetry=bag_remove_keys(Telemetry, dynamic(['controllerStatus', 'engineHours', 'fuelConsumption'])),
+        ProcessedAt=now()
+}
+
+.create-or-alter function with (folder='SchemaDriftReference') TransformGatewayTelemetry() {
+    RawTelemetry
+    | where MessageType == 'telemetry' and SourceType == 'gateway'
+    | extend Telemetry = todynamic(RawRecord.payload.telemetry)
+    | where isnotnull(Telemetry)
+    | project
+        MessageId,
+        EventTimestamp,
+        TenantId,
+        AssetId,
+        DeviceId,
+        SchemaVersion,
+        Hdop=toreal(Telemetry.hdop),
+        PrimaryVoltage=toreal(Telemetry.primaryVoltage),
+        Speed=toreal(Telemetry.speed),
+        FixType=tostring(Telemetry.fixType),
+        SignalStrength=toint(Telemetry.signalStrength),
+        ResidualTelemetry=bag_remove_keys(Telemetry, dynamic(['hdop', 'primaryVoltage', 'speed', 'fixType', 'signalStrength'])),
+        ProcessedAt=now()
+}
+
+.create-or-alter function with (folder='SchemaDriftReference') TransformCoolingUnitTelemetry() {
+    RawTelemetry
+    | where MessageType == 'telemetry' and SourceType == 'cooling_unit'
+    | extend Telemetry = todynamic(RawRecord.payload.telemetry)
+    | where isnotnull(Telemetry)
+    | project
+        MessageId,
+        EventTimestamp,
+        TenantId,
+        AssetId,
+        DeviceId,
+        SchemaVersion,
+        ControllerStatus=tostring(Telemetry.controllerStatus),
+        FuelLevelPercent=toreal(Telemetry.fuelLevelPercent),
+        AmbientTemperature=toreal(Telemetry.ambientTemperature),
+        NumberOfZones=toint(Telemetry.numberOfZones),
+        ResidualTelemetry=bag_remove_keys(Telemetry, dynamic(['controllerStatus', 'fuelLevelPercent', 'ambientTemperature', 'numberOfZones', 'zones'])),
+        ProcessedAt=now()
+}
+
+.create-or-alter function with (folder='SchemaDriftReference') TransformCoolingUnitZones() {
+    RawTelemetry
+    | where MessageType == 'telemetry' and SourceType == 'cooling_unit'
+    | extend Zones = todynamic(RawRecord.payload.telemetry.zones)
+    | mv-expand Zone = Zones
+    | project
+        MessageId,
+        EventTimestamp,
+        TenantId,
+        AssetId,
+        DeviceId,
+        ZoneId=toint(Zone.zone),
+        IsDoorOpen=tobool(Zone.isDoorOpen),
+        IsActive=tobool(Zone.isActive),
+        OperatingMode=tostring(Zone.operatingMode),
+        ReturnAirTemperature=toreal(Zone.returnAirTemperature),
+        DischargeAirTemperature=toreal(Zone.dischargeAirTemperature),
+        SetpointTemperature=toreal(Zone.setpointTemperature),
+        ResidualZone=bag_remove_keys(Zone, dynamic(['zone', 'isDoorOpen', 'isActive', 'operatingMode', 'returnAirTemperature', 'dischargeAirTemperature', 'setpointTemperature'])),
+        ProcessedAt=now()
+}

@@ -1,0 +1,49 @@
+// Drift observations are append-only. Summarize them for review at query time.
+.create-merge table TelemetryDriftObservations (
+    MessageId:guid,
+    EventTimestamp:datetime,
+    SourceType:string,
+    FieldPath:string,
+    ObservedType:string,
+    SampleValue:dynamic,
+    DetectedAt:datetime
+)
+
+.create-or-alter function with (folder='SchemaDriftReference') DetectTelemetryDrift() {
+    RawTelemetry
+    | where MessageType == 'telemetry'
+    | extend Telemetry = todynamic(RawRecord.payload.telemetry)
+    | extend KnownKeys = case(
+        SourceType == 'controller', dynamic(['controllerStatus', 'engineHours', 'fuelConsumption']),
+        SourceType == 'gateway', dynamic(['hdop', 'primaryVoltage', 'speed', 'fixType', 'signalStrength']),
+        SourceType == 'cooling_unit', dynamic(['controllerStatus', 'fuelLevelPercent', 'ambientTemperature', 'numberOfZones', 'zones']),
+        dynamic([]))
+    | mv-expand FieldName = bag_keys(Telemetry) to typeof(string)
+    | where not(set_has_element(KnownKeys, FieldName))
+    | extend SampleValue = Telemetry[FieldName]
+    | project
+        MessageId,
+        EventTimestamp,
+        SourceType,
+        FieldPath=strcat('payload.telemetry.', FieldName),
+        ObservedType=gettype(SampleValue),
+        SampleValue,
+        DetectedAt=now()
+}
+
+.alter table TelemetryDriftObservations policy update
+```
+[{"IsEnabled":true,"Source":"RawTelemetry","Query":"DetectTelemetryDrift()","IsTransactional":false,"PropagateIngestionProperties":true}]
+```
+
+.create-or-alter function with (folder='SchemaDriftReference') ReviewTelemetryDrift() {
+    TelemetryDriftObservations
+    | summarize
+        FirstSeen=min(EventTimestamp),
+        LastSeen=max(EventTimestamp),
+        ObservationCount=count(),
+        ObservedTypes=make_set(ObservedType, 16),
+        SampleValue=take_any(SampleValue)
+      by SourceType, FieldPath
+    | order by LastSeen desc
+}

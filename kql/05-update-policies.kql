@@ -1,0 +1,20 @@
+// Nontransactional policies preserve RawTelemetry ingestion if a target transform fails.
+.alter table ControllerTelemetry policy update
+```
+[{"IsEnabled":true,"Source":"RawTelemetry","Query":"TransformControllerTelemetry()","IsTransactional":false,"PropagateIngestionProperties":true}]
+```
+
+.alter table GatewayTelemetry policy update
+```
+[{"IsEnabled":true,"Source":"RawTelemetry","Query":"TransformGatewayTelemetry()","IsTransactional":false,"PropagateIngestionProperties":true}]
+```
+
+.alter table CoolingUnitTelemetry policy update
+```
+[{"IsEnabled":true,"Source":"RawTelemetry","Query":"TransformCoolingUnitTelemetry()","IsTransactional":false,"PropagateIngestionProperties":true}]
+```
+
+.alter table CoolingUnitZones policy update
+```
+[{"IsEnabled":true,"Source":"RawTelemetry","Query":"TransformCoolingUnitZones()","IsTransactional":false,"PropagateIngestionProperties":true}]
+```

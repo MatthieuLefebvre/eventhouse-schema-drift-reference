@@ -1,0 +1,6 @@
+{
+  "approved": true,
+  "table": "ControllerTelemetry",
+  "column": "ServiceCountdownHours",
+  "type": "real"
+}

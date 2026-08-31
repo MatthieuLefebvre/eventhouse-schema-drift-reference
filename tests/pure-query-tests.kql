@@ -1,0 +1,26 @@
+// Pure KQL checks that do not create persistent objects.
+let Input = datatable(SourceType:string, Telemetry:dynamic)
+[
+    'controller', dynamic({'controllerStatus':'running','engineHours':12.5,'fuelConsumption':1.2,'newField':42}),
+    'gateway', dynamic({'hdop':0.7,'primaryVoltage':12.8,'speed':45.0,'fixType':'3d','signalStrength':'bad'}),
+    'cooling_unit', dynamic({'numberOfZones':2,'zones':[{'zone':1},{'zone':7}]})
+];
+Input
+| extend KnownKeys=case(
+    SourceType == 'controller', dynamic(['controllerStatus','engineHours','fuelConsumption']),
+    SourceType == 'gateway', dynamic(['hdop','primaryVoltage','speed','fixType','signalStrength']),
+    dynamic(['numberOfZones','zones']))
+| extend Residual=bag_remove_keys(Telemetry, KnownKeys)
+| project SourceType, Residual
+;
+
+let CoolingInput = datatable(MessageId:guid, Zones:dynamic)
+[
+    guid(30000000-0000-0000-0000-000000000001), dynamic([{'zone':1},{'zone':7}]),
+    guid(30000000-0000-0000-0000-000000000002), dynamic([])
+];
+CoolingInput
+| mv-expand Zone=Zones
+| project MessageId, ZoneId=toint(Zone.zone)
+| summarize ZoneRows=count(), ZoneIds=make_set(ZoneId) by MessageId
+;

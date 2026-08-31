@@ -1,0 +1,16 @@
+// Maps stable envelope fields and retains the rest of the source document.
+// DropMappedFields removes the envelope paths already mapped above from RawRecord.
+.create-or-alter table RawTelemetry ingestion json mapping 'RawTelemetryJsonMapping'
+```
+[
+  {"Column":"MessageId",      "Properties":{"Path":"$.id"}},
+  {"Column":"EventTimestamp", "Properties":{"Path":"$.timestamp"}},
+  {"Column":"MessageType",    "Properties":{"Path":"$.messageType"}},
+  {"Column":"SourceType",     "Properties":{"Path":"$.sourceType"}},
+  {"Column":"TenantId",       "Properties":{"Path":"$.tenantId"}},
+  {"Column":"AssetId",        "Properties":{"Path":"$.assetId"}},
+  {"Column":"DeviceId",       "Properties":{"Path":"$.deviceId"}},
+  {"Column":"SchemaVersion",  "Properties":{"Path":"$.schemaVersion"}},
+  {"Column":"RawRecord",      "Properties":{"Path":"$", "Transform":"DropMappedFields"}}
+]
+```

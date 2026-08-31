@@ -1,0 +1,8 @@
+// Ingests the repository's public synthetic JSON Lines fixture.
+// Run after 01 through 06 have been deployed and the repository is public.
+.ingest into table RawTelemetry
+('https://raw.githubusercontent.com/matthieulefebvre-publiccollab/eventhouse-schema-drift-reference/main/samples/telemetry.jsonl')
+with (
+    format='multijson',
+    ingestionMappingReference='RawTelemetryJsonMapping'
+)

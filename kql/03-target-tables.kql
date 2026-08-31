@@ -1,0 +1,62 @@
+// Fixed-schema ordinary tables produced by update policies.
+.create-merge table ControllerTelemetry (
+    MessageId:guid,
+    EventTimestamp:datetime,
+    TenantId:string,
+    AssetId:string,
+    DeviceId:string,
+    SchemaVersion:int,
+    ControllerStatus:string,
+    EngineHours:real,
+    FuelConsumption:real,
+    ResidualTelemetry:dynamic,
+    ProcessedAt:datetime
+)
+
+.create-merge table GatewayTelemetry (
+    MessageId:guid,
+    EventTimestamp:datetime,
+    TenantId:string,
+    AssetId:string,
+    DeviceId:string,
+    SchemaVersion:int,
+    Hdop:real,
+    PrimaryVoltage:real,
+    Speed:real,
+    FixType:string,
+    SignalStrength:int,
+    ResidualTelemetry:dynamic,
+    ProcessedAt:datetime
+)
+
+.create-merge table CoolingUnitTelemetry (
+    MessageId:guid,
+    EventTimestamp:datetime,
+    TenantId:string,
+    AssetId:string,
+    DeviceId:string,
+    SchemaVersion:int,
+    ControllerStatus:string,
+    FuelLevelPercent:real,
+    AmbientTemperature:real,
+    NumberOfZones:int,
+    ResidualTelemetry:dynamic,
+    ProcessedAt:datetime
+)
+
+.create-merge table CoolingUnitZones (
+    MessageId:guid,
+    EventTimestamp:datetime,
+    TenantId:string,
+    AssetId:string,
+    DeviceId:string,
+    ZoneId:int,
+    IsDoorOpen:bool,
+    IsActive:bool,
+    OperatingMode:string,
+    ReturnAirTemperature:real,
+    DischargeAirTemperature:real,
+    SetpointTemperature:real,
+    ResidualZone:dynamic,
+    ProcessedAt:datetime
+)

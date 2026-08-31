@@ -1,0 +1,8 @@
+// Run after deploying 01 through 06 and ingesting samples/telemetry.jsonl.
+RawTelemetry | summarize RawRows=count(), Sources=make_set(SourceType)
+ControllerTelemetry | summarize Rows=count(), WithResidual=countif(bag_keys(ResidualTelemetry) has 'serviceCountdownHours')
+GatewayTelemetry | project MessageId, SignalStrength, ResidualTelemetry
+CoolingUnitTelemetry | project MessageId, NumberOfZones, ResidualTelemetry
+CoolingUnitZones | summarize ZoneRows=count(), ZoneIds=make_set(ZoneId) by MessageId
+ReviewTelemetryDrift()
+.show ingestion failures | where OriginatesFromUpdatePolicy == true

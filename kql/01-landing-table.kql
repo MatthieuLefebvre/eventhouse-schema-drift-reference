@@ -1,0 +1,13 @@
+// Creates the raw landing table used by every demo policy.
+// Run in a disposable Microsoft Fabric KQL database.
+.create-merge table RawTelemetry (
+    MessageId:guid,
+    EventTimestamp:datetime,
+    MessageType:string,
+    SourceType:string,
+    TenantId:string,
+    AssetId:string,
+    DeviceId:string,
+    SchemaVersion:int,
+    RawRecord:dynamic
+)

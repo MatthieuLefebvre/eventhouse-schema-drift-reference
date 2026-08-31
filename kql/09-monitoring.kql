@@ -1,0 +1,26 @@
+// Update-policy configuration and failures.
+.show table ControllerTelemetry policy update
+.show table GatewayTelemetry policy update
+.show table CoolingUnitTelemetry policy update
+.show table CoolingUnitZones policy update
+.show table TelemetryDriftObservations policy update
+
+.show ingestion failures
+| where FailedOn > ago(24h) and OriginatesFromUpdatePolicy == true
+| project FailedOn, Table, Details, RootActivityId, OperationId
+| order by FailedOn desc
+
+// Completeness checks by source type and hourly event time.
+RawTelemetry
+| summarize Raw=count() by SourceType, Hour=bin(EventTimestamp, 1h)
+| order by Hour desc, SourceType asc
+
+union
+    (ControllerTelemetry | summarize Target=count() by SourceType='controller', Hour=bin(EventTimestamp, 1h)),
+    (GatewayTelemetry | summarize Target=count() by SourceType='gateway', Hour=bin(EventTimestamp, 1h)),
+    (CoolingUnitTelemetry | summarize Target=count() by SourceType='cooling_unit', Hour=bin(EventTimestamp, 1h))
+| order by Hour desc, SourceType asc
+
+// OneLake availability is represented by a table mirroring policy.
+.show table ControllerTelemetry policy mirroring
+.show table ControllerTelemetry mirroring operations
