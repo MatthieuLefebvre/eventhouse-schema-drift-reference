@@ -15,12 +15,16 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "presentation" / "eventhouse-schema-drift-reference.pptx"
 ARCHITECTURE_IMAGE = ROOT / "docs" / "images" / "target-architecture.png"
 
-INK = RGBColor(24, 37, 48)
+BACKGROUND = RGBColor(14, 22, 29)
+INK = RGBColor(8, 15, 20)
+TEXT = RGBColor(235, 242, 244)
+MUTED = RGBColor(170, 190, 198)
+PANEL = RGBColor(27, 41, 50)
+PANEL_BORDER = RGBColor(60, 82, 92)
 BLUE = RGBColor(0, 120, 212)
 TEAL = RGBColor(0, 133, 119)
 AMBER = RGBColor(230, 126, 34)
 RED = RGBColor(196, 43, 28)
-MIST = RGBColor(239, 245, 247)
 WHITE = RGBColor(255, 255, 255)
 
 SLIDES = [
@@ -53,7 +57,7 @@ def load_font(size: int):
     return ImageFont.load_default(size=size)
 
 
-def add_textbox(slide, x, y, width, height, text, size=20, color=INK, bold=False):
+def add_textbox(slide, x, y, width, height, text, size=20, color=TEXT, bold=False):
     shape = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(width), Inches(height))
     frame = shape.text_frame
     frame.clear()
@@ -67,7 +71,7 @@ def add_textbox(slide, x, y, width, height, text, size=20, color=INK, bold=False
 
 
 def add_header(slide, title, number):
-    add_textbox(slide, 0.7, 0.45, 11.8, 0.6, title, 28, INK, True)
+    add_textbox(slide, 0.7, 0.45, 11.8, 0.6, title, 28, TEXT, True)
     accent = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.7), Inches(1.16), Inches(1.15), Inches(0.07))
     accent.fill.solid()
     accent.fill.fore_color.rgb = BLUE
@@ -85,7 +89,7 @@ def add_bullets(slide, bullets):
         paragraph.level = 0
         paragraph.font.name = "Aptos"
         paragraph.font.size = Pt(20 if len(bullets) > 5 else 22)
-        paragraph.font.color.rgb = INK
+        paragraph.font.color.rgb = TEXT
         paragraph.space_after = Pt(18)
         paragraph.text = f"•  {bullet}"
 
@@ -94,7 +98,7 @@ def add_code(slide, code):
     panel = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(8.25), Inches(1.55), Inches(4.45), Inches(4.8))
     panel.fill.solid()
     panel.fill.fore_color.rgb = INK
-    panel.line.color.rgb = RGBColor(56, 72, 82)
+    panel.line.color.rgb = PANEL_BORDER
     frame = panel.text_frame
     frame.clear()
     frame.margin_left = Inches(0.25)
@@ -110,8 +114,8 @@ def add_code(slide, code):
 def add_visual(slide, visual):
     panel = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(8.55), Inches(1.5), Inches(4.1), Inches(4.95))
     panel.fill.solid()
-    panel.fill.fore_color.rgb = MIST
-    panel.line.color.rgb = RGBColor(211, 224, 228)
+    panel.fill.fore_color.rgb = PANEL
+    panel.line.color.rgb = PANEL_BORDER
     labels = {
         "spark": ("EXPORT → SPARK", RED),
         "cost": ("MOVE + INFER + MERGE", AMBER),
@@ -142,7 +146,7 @@ def add_architecture(slide):
 
 def build_architecture_image():
     ARCHITECTURE_IMAGE.parent.mkdir(parents=True, exist_ok=True)
-    image = Image.new("RGB", (1600, 900), "#f5f8f9")
+    image = Image.new("RGB", (1600, 900), "#0e161d")
     draw = ImageDraw.Draw(image)
     font = load_font(31)
     small = load_font(24)
@@ -162,10 +166,10 @@ def build_architecture_image():
         draw.text(((left + right - text_box[2]) / 2, (top + bottom - text_box[3]) / 2), label, font=font, fill="white")
     arrows = [((300, 425), (370, 425)), ((640, 425), (720, 175)), ((640, 425), (720, 450)), ((640, 425), (720, 725)), ((1050, 175), (1130, 175)), ((1050, 450), (1130, 450)), ((1050, 725), (1130, 725))]
     for start, end in arrows:
-        draw.line((start, end), fill="#5b6b73", width=6)
-        draw.polygon([(end[0], end[1]), (end[0] - 18, end[1] - 10), (end[0] - 18, end[1] + 10)], fill="#5b6b73")
-    draw.text((70, 65), "Eventhouse-native schema drift", font=font, fill="#182530")
-    draw.text((70, 115), "Fixed target schemas • residual JSON • reviewed promotion", font=small, fill="#52646d")
+        draw.line((start, end), fill="#9bb0b8", width=6)
+        draw.polygon([(end[0], end[1]), (end[0] - 18, end[1] - 10), (end[0] - 18, end[1] + 10)], fill="#9bb0b8")
+    draw.text((70, 65), "Eventhouse-native schema drift", font=font, fill="#ebf2f4")
+    draw.text((70, 115), "Fixed target schemas • residual JSON • reviewed promotion", font=small, fill="#aabeC6")
     image.save(ARCHITECTURE_IMAGE)
 
 
@@ -179,14 +183,14 @@ def build_presentation(output: Path = OUTPUT):
         slide = presentation.slides.add_slide(presentation.slide_layouts[6])
         background = slide.background.fill
         background.solid()
-        background.fore_color.rgb = WHITE
+        background.fore_color.rgb = BACKGROUND
         if number == 1:
             stripe = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, Inches(0.22), presentation.slide_height)
             stripe.fill.solid()
             stripe.fill.fore_color.rgb = BLUE
             stripe.line.fill.background()
-            add_textbox(slide, 0.9, 1.5, 11.5, 1.3, title, 38, INK, True)
-            add_textbox(slide, 0.95, 3.15, 10.8, 1.3, "\n".join(bullets), 21, RGBColor(82, 100, 109))
+            add_textbox(slide, 0.9, 1.5, 11.5, 1.3, title, 38, TEXT, True)
+            add_textbox(slide, 0.95, 3.15, 10.8, 1.3, "\n".join(bullets), 21, MUTED)
             add_textbox(slide, 0.95, 6.45, 5.0, 0.4, "PUBLIC REFERENCE IMPLEMENTATION", 11, BLUE, True)
         else:
             add_header(slide, title, number)
