@@ -223,6 +223,44 @@ Reprocesses only the approved historical interval inside Eventhouse. Explain tha
 | [09-monitoring.kql](../kql/09-monitoring.kql) | During production-readiness discussion | Shows policy configuration, failures, completeness counts, and OneLake mirroring status |
 | [pure-query-tests.kql](../tests/pure-query-tests.kql) | When object creation is not permitted | Demonstrates residual bags and array expansion without persistent objects |
 
+## Operations Follow-Up: Alert and Review
+
+After the technical demo, open the engineer Real-Time Dashboard built from [11-dashboard-alert-queries.kql](../kql/11-dashboard-alert-queries.kql).
+
+**Show in order:**
+
+1. Ingestion rate is current for all three source types.
+2. Raw-to-target gap is zero, proving the update policies are keeping up.
+3. New-fields review contains `payload.telemetry.serviceCountdownHours`, type `long`, and sample `120`.
+4. Residual backlog contains the same unpromoted field.
+5. Zone amplification shows two child rows for the two-zone fixture.
+
+**Say:**
+
+> The dashboard separates an operational incident from a governance decision. A raw-to-target gap is high severity because processing may be incomplete. A new field with healthy typed ingestion is medium severity and enters the normal review queue.
+
+Show the example alert after its illustrative threshold of 10 observations in 15 minutes:
+
+```text
+[MEDIUM] New telemetry field requires review
+Source: controller
+Field: payload.telemetry.serviceCountdownHours
+Observed types: [long]
+Sample: 120
+Typed ingestion: continuing
+```
+
+Explain the handoff:
+
+- Data operations acknowledges the alert and checks ingestion health.
+- The source owner confirms that the firmware release intentionally added the field.
+- The domain owner defines it as nonnegative hours until scheduled service.
+- The data engineer profiles type stability, range, frequency, and affected assets.
+- The platform engineer submits the KQL and bounded backfill in a pull request.
+- Consumer and change owners approve the contract before production deployment.
+
+Close this section by showing the three possible ticket outcomes: promote, keep dynamic, or reject/source-fix. Refer to the [operations runbook](alert-review-promotion.md) for the complete notification payload and checklist.
+
 ## Close the Demo
 
 **Say:**

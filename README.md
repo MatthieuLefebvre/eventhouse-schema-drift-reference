@@ -191,6 +191,53 @@ cooling-01  2       defrost        5.1                   4.0
 
 When the next fixture contains `"zones":[]`, it produces zero child rows rather than a variable set of columns.
 
+## Production Alert, Review, and Promotion
+
+Detection should be automatic; schema changes should not be. In production, an unknown field follows this operating path:
+
+```mermaid
+flowchart LR
+	A[New field observed] --> B[Drift evidence]
+	B --> C{Threshold met?}
+	C -->|No| D[Dashboard]
+	C -->|Yes| E[Teams or email alert]
+	E --> F[Review ticket]
+	F --> G[Profile and validate meaning]
+	G --> H{Decision}
+	H -->|Promote| I[PR, approval, deploy, backfill]
+	H -->|Keep dynamic| J[Record decision]
+	H -->|Reject| K[Source fix or quarantine]
+```
+
+For the concrete `serviceCountdownHours` example, an alert can require at least 10 observations in 15 minutes. It sends the source, field path, observed types, sample value, affected assets, and first/last-seen times to a Teams channel and creates one review ticket for that source/field combination.
+
+| Role | What they do |
+|---|---|
+| Data operations | Acknowledge the alert and verify ingestion and update-policy health |
+| Source-system owner | Confirm whether the field and type were intentionally released |
+| Domain owner | Define meaning, unit, range, sensitivity, retention, and ownership |
+| Data engineer | Profile values and recommend promote, keep dynamic, reject, or source fix |
+| Platform engineer | Implement tested DDL, function revision, monitoring, and bounded backfill |
+| Consumer owner and approver | Validate compatibility and authorize the production change |
+
+See the [full alert, review, and promotion runbook](docs/alert-review-promotion.md) for the notification payload, review query, approval checklist, and alternate decisions.
+
+## Engineer Real-Time Dashboard
+
+The [dashboard and alert query pack](kql/11-dashboard-alert-queries.kql) provides standalone KQL for a Fabric Real-Time Dashboard:
+
+| Dashboard tile | What the engineer learns |
+|---|---|
+| Ingestion rate | Whether every source is still sending messages |
+| Raw-to-target completeness | Whether update policies are keeping up or need replay |
+| New drift fields | Field, types, sample, frequency, and affected assets for triage |
+| Drift trend | Whether a firmware or API release caused a spike |
+| Conversion failures | Existing fields whose values no longer match the approved type |
+| Residual backlog | Fields still awaiting a governance decision |
+| Zone amplification | Child-row growth caused by variable arrays |
+
+The same query pack includes a medium-severity new-field alert and a high-severity raw-to-target gap alert. Dashboard refresh and alert evaluation are independent: alerts continue running when nobody has the dashboard open.
+
 ## Safety Model
 
 The demo policies use `IsTransactional:false`. A failed transform therefore does not roll back ingestion into `RawTelemetry`, but the corresponding target can miss rows until operators detect and replay the failure. Microsoft generally recommends transactional policies for production consistency. Choose deliberately after testing the failure and replay model.
@@ -214,6 +261,8 @@ Run the demonstration files in order:
 7. `kql/10-ingest-samples.kql`
 
 Then run `tests/deployed-smoke-tests.kql`.
+
+Create the optional engineer dashboard by adding each standalone section from `kql/11-dashboard-alert-queries.kql` as a tile. Configure its two `ALERT` sections in Fabric Activator, Logic Apps, or the organization's monitoring platform.
 
 Allow approximately 25 minutes for the technical demo and 15 minutes for architecture, production risks, and questions.
 

@@ -39,6 +39,10 @@ SLIDES = [
     {"title": "Step 4: drift becomes review evidence", "bullets": ["bag_keys discovers serviceCountdownHours", "gettype records long and a sample value of 120", "Known processing continues while the field is reviewed"], "code": 'SourceType    controller\nFieldPath     serviceCountdownHours\nObservedType  long\nSampleValue   120\n\nbag_keys + mv-expand\n+ set_has_element + gettype'},
     {"title": "A second example: two zones become rows", "bullets": ["One cooling-unit message contains zones 1 and 2", "mv-expand produces two stable child rows", "An empty zones array produces zero child rows"], "code": 'Device      Zone  Mode     Return  Setpoint\ncooling-01  1     cool     2.8     2.0\ncooling-01  2     defrost  5.1     4.0\n\n| mv-expand Zone=Zones'},
     {"title": "Step 5: promote the reviewed field", "bullets": ["Add ServiceCountdownHours:real", "Revise and schema-check the stored function", "Replay only the approved interval", "The residual bag is now empty for this message"], "code": 'BEFORE\nResidual {"serviceCountdownHours":120}\n\nAFTER\nServiceCountdownHours  120.0\nResidual               {}\n\n.alter-merge + .set-or-append'},
+    {"title": "Alert only when action is needed", "bullets": ["Aggregate repeated observations instead of alerting per message", "Example threshold: 10 observations in 15 minutes", "Send field, type, sample, assets, and first/last seen", "Create or update one review ticket per source and field"], "code": 'controller\nserviceCountdownHours\nType       long\nSample     120\nAssets     47\nEvents     8,212\n\n→ Teams  → DATA-1842'},
+    {"title": "People make the promotion decision", "bullets": ["Data operations confirms ingestion health", "Source owner confirms the release", "Domain owner defines meaning and unit", "Data engineer profiles quality and usage", "Platform engineer submits tested KQL", "Consumer owner and approver authorize deployment"], "visual": "review"},
+    {"title": "The engineer sees one operational view", "bullets": ["Ingestion rate and raw-to-target gap", "New fields and drift trend", "Type-conversion failures", "Residual governance backlog", "Array row amplification", "Alert evaluation runs even when the dashboard is closed"], "visual": "dashboard"},
+    {"title": "Review produces one of three outcomes", "bullets": ["Promote: PR, approvals, deploy, monitor, bounded backfill", "Keep dynamic: record rationale and suppress duplicate tickets", "Reject: quarantine or ask the producer to fix its contract", "Never let drift detection alter production schemas automatically"], "visual": "decision"},
     {"title": "Adopt with evidence, not promises", "bullets": ["Shadow one source type first", "Benchmark policy CPU, ingestion latency, and array amplification", "Validate failure monitoring and bounded replay", "Measure duplicate arrivals before choosing a lookback", "Retire Spark bulk reads only after completeness gates pass"], "visual": "adopt"},
 ]
 
@@ -121,6 +125,9 @@ def add_visual(slide, visual):
         "cost": ("MOVE + INFER + MERGE", AMBER),
         "journey": ("BUILD → PROVE → PROMOTE", BLUE),
         "proof": ("DRIFT SURVIVES", TEAL),
+        "review": ("PROFILE → APPROVE", AMBER),
+        "dashboard": ("OPERATIONS VIEW", TEAL),
+        "decision": ("3 DECISIONS", BLUE),
         "adopt": ("SHADOW → BENCHMARK", BLUE),
     }
     word, color = labels.get(visual, ("EVENTHOUSE", BLUE))

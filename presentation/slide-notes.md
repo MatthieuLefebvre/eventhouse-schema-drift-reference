@@ -46,6 +46,22 @@ Use the two fixture rows to make `mv-expand` tangible. The parent has two zones,
 
 Contrast the exact before and after values. `120` moves from residual JSON to the typed `ServiceCountdownHours` column only after review. Appended replay versions require explicit consumer semantics.
 
-## 12. Adopt with evidence, not promises
+## 12. Alert only when action is needed
+
+Do not alert once per observation. Use a time window and evidence threshold appropriate to production volume. The payload must contain enough context to triage and should create or update one ticket per source and field.
+
+## 13. People make the promotion decision
+
+Walk across the ownership chain. Operations checks health, the source owner confirms intent, the domain owner defines meaning, engineering profiles and implements, and consumer/change owners approve. Small teams may combine roles, but detection itself never grants approval.
+
+## 14. The engineer sees one operational view
+
+The query pack supplies seven Real-Time Dashboard tiles. Separate operational failure from governance drift: a raw-to-target gap is high urgency, while a healthy residual field enters normal review.
+
+## 15. Review produces one of three outcomes
+
+Promotion is only one valid outcome. Sparse or unstable fields may remain dynamic; accidental or unsafe fields require a source fix or quarantine. Record every decision to prevent repeated tickets without hiding the residual data.
+
+## 16. Adopt with evidence, not promises
 
 Close with a one-source shadow test and measurable gates: CPU, latency, completeness, replay, array amplification, and duplicate behavior.

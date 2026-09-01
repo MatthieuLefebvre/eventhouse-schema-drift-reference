@@ -1,0 +1,135 @@
+// PURPOSE: Supply tiles and alerts for a Fabric Real-Time Dashboard.
+//
+// Each section is a standalone query. Copy one section into one dashboard tile.
+// Adjust lookback windows and alert thresholds only after observing normal
+// production volume. The demo values below are examples, not recommendations.
+
+// TILE 1 - Ingestion rate by source type (time chart).
+RawTelemetry
+| where EventTimestamp > ago(24h)
+| summarize Messages=count() by bin(EventTimestamp, 5m), SourceType
+| order by EventTimestamp asc
+
+// TILE 2 - Raw-to-target completeness (table or column chart).
+// A negative Gap means raw messages have not yet reached the typed target.
+let Lookback = 24h;
+let RawCounts = RawTelemetry
+    | where EventTimestamp > ago(Lookback) and MessageType == 'telemetry'
+    | summarize RawMessages=count() by SourceType;
+let TargetCounts = union
+    (ControllerTelemetry | where EventTimestamp > ago(Lookback) | summarize TypedMessages=count() by SourceType='controller'),
+    (GatewayTelemetry | where EventTimestamp > ago(Lookback) | summarize TypedMessages=count() by SourceType='gateway'),
+    (CoolingUnitTelemetry | where EventTimestamp > ago(Lookback) | summarize TypedMessages=count() by SourceType='cooling_unit');
+RawCounts
+| join kind=leftouter TargetCounts on SourceType
+| extend TypedMessages=coalesce(TypedMessages, 0), Gap=RawMessages-coalesce(TypedMessages, 0)
+| project SourceType, RawMessages, TypedMessages, Gap
+
+// TILE 3 - New drift fields requiring review (table).
+// Joining to RawTelemetry adds the number of affected assets.
+let Lookback = 24h;
+TelemetryDriftObservations
+| where DetectedAt > ago(Lookback)
+| join kind=leftouter (
+    RawTelemetry
+    | where EventTimestamp > ago(Lookback)
+    | project MessageId, AssetId
+  ) on MessageId
+| summarize
+    FirstSeen=min(EventTimestamp),
+    LastSeen=max(EventTimestamp),
+    Observations=count(),
+    AffectedAssets=dcount(AssetId),
+    ObservedTypes=make_set(ObservedType, 8),
+    SampleValue=take_any(SampleValue)
+  by SourceType, FieldPath
+| order by LastSeen desc
+
+// TILE 4 - Drift observation trend (stacked time chart).
+TelemetryDriftObservations
+| where DetectedAt > ago(24h)
+| summarize Observations=count() by bin(DetectedAt, 5m), SourceType
+| order by DetectedAt asc
+
+// TILE 5 - Existing-field conversion failures (table).
+// These examples expose incompatible values that explicit casts converted to
+// null. The original value remains available in RawTelemetry for investigation.
+union
+    (GatewayTelemetry
+     | where EventTimestamp > ago(24h) and isnull(SignalStrength)
+     | project EventTimestamp, SourceType='gateway', AssetId, DeviceId,
+         FieldPath='payload.telemetry.signalStrength', MessageId),
+    (ControllerTelemetry
+     | where EventTimestamp > ago(24h) and isnull(EngineHours)
+     | project EventTimestamp, SourceType='controller', AssetId, DeviceId,
+         FieldPath='payload.telemetry.engineHours', MessageId),
+    (CoolingUnitTelemetry
+     | where EventTimestamp > ago(24h) and isnull(AmbientTemperature)
+     | project EventTimestamp, SourceType='cooling_unit', AssetId, DeviceId,
+         FieldPath='payload.telemetry.ambientTemperature', MessageId)
+| order by EventTimestamp desc
+
+// TILE 6 - Residual fields still awaiting a governance decision (table).
+union
+    (ControllerTelemetry | where EventTimestamp > ago(24h) | project SourceType='controller', EventTimestamp, AssetId, ResidualTelemetry),
+    (GatewayTelemetry | where EventTimestamp > ago(24h) | project SourceType='gateway', EventTimestamp, AssetId, ResidualTelemetry),
+    (CoolingUnitTelemetry | where EventTimestamp > ago(24h) | project SourceType='cooling_unit', EventTimestamp, AssetId, ResidualTelemetry)
+| mv-expand FieldName=bag_keys(ResidualTelemetry) to typeof(string)
+| summarize Records=count(), AffectedAssets=dcount(AssetId), LastSeen=max(EventTimestamp)
+  by SourceType, FieldName
+| order by LastSeen desc
+
+// TILE 7 - Zone row amplification (time chart).
+// Compare child rows with parent messages before setting capacity expectations.
+let Parents = CoolingUnitTelemetry
+    | where EventTimestamp > ago(24h)
+    | summarize ParentMessages=count() by Hour=bin(EventTimestamp, 1h);
+let Children = CoolingUnitZones
+    | where EventTimestamp > ago(24h)
+    | summarize ZoneRows=count() by Hour=bin(EventTimestamp, 1h);
+Parents
+| join kind=fullouter Children on Hour
+| extend ParentMessages=coalesce(ParentMessages, 0), ZoneRows=coalesce(ZoneRows, 0)
+| extend RowsPerParent=iff(ParentMessages == 0, real(null), todouble(ZoneRows) / ParentMessages)
+| project Hour, ParentMessages, ZoneRows, RowsPerParent
+| order by Hour asc
+
+// ALERT - New field needs triage.
+// Configure the alert to fire when this query returns one or more rows. These
+// illustrative thresholds require repeated evidence across several messages.
+let AlertWindow = 15m;
+let MinimumObservations = 10;
+TelemetryDriftObservations
+| where DetectedAt > ago(AlertWindow)
+| join kind=leftouter (
+        RawTelemetry
+        | where EventTimestamp > ago(AlertWindow)
+        | project MessageId, AssetId
+    ) on MessageId
+| summarize
+    FirstSeen=min(EventTimestamp),
+    LastSeen=max(EventTimestamp),
+    Observations=count(),
+        AffectedAssets=dcount(AssetId),
+    ObservedTypes=make_set(ObservedType, 8),
+    SampleValue=take_any(SampleValue)
+  by SourceType, FieldPath
+| where Observations >= MinimumObservations
+| project Severity='Medium', SourceType, FieldPath, Observations, AffectedAssets,
+    ObservedTypes, SampleValue, FirstSeen, LastSeen
+
+// ALERT - Raw-to-target gap needs immediate operational investigation.
+// Configure the alert to fire when this query returns one or more rows.
+let AlertWindow = 15m;
+let Raw = RawTelemetry
+    | where EventTimestamp > ago(AlertWindow) and MessageType == 'telemetry'
+    | summarize RawMessages=count() by SourceType;
+let Typed = union
+    (ControllerTelemetry | where EventTimestamp > ago(AlertWindow) | summarize TypedMessages=count() by SourceType='controller'),
+    (GatewayTelemetry | where EventTimestamp > ago(AlertWindow) | summarize TypedMessages=count() by SourceType='gateway'),
+    (CoolingUnitTelemetry | where EventTimestamp > ago(AlertWindow) | summarize TypedMessages=count() by SourceType='cooling_unit');
+Raw
+| join kind=leftouter Typed on SourceType
+| extend TypedMessages=coalesce(TypedMessages, 0), MissingMessages=RawMessages-coalesce(TypedMessages, 0)
+| where MissingMessages > 0
+| project Severity='High', SourceType, RawMessages, TypedMessages, MissingMessages

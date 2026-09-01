@@ -51,7 +51,7 @@ def validate_presentation() -> None:
     assert zipfile.is_zipfile(path), "Presentation is not a valid Open XML package"
     with zipfile.ZipFile(path) as package:
         slides = [name for name in package.namelist() if name.startswith("ppt/slides/slide") and name.endswith(".xml")]
-    assert len(slides) == 12, f"Expected 12 slides, found {len(slides)}"
+    assert len(slides) == 16, f"Expected 16 slides, found {len(slides)}"
 
 
 if __name__ == "__main__":
