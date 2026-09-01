@@ -219,7 +219,7 @@ def build_presentation(output: Path = OUTPUT):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Build the customer demo presentation.")
+    parser = argparse.ArgumentParser(description="Build the Eventhouse schema drift architecture overview.")
     parser.add_argument("--output", type=Path, default=OUTPUT)
     arguments = parser.parse_args()
     build_architecture_image()
