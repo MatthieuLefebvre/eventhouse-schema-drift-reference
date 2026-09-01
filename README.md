@@ -112,6 +112,85 @@ Known routing fields become physical columns while the rest of the document rema
 
 Use the [presenter demo script](docs/demo-script.md) for narration, expected results, questions to ask, and recovery notes.
 
+## Follow One Message Through The Demo
+
+Use this controller message from [samples/telemetry.jsonl](samples/telemetry.jsonl) as the story throughout the demonstration. The producer has added `serviceCountdownHours` without coordinating a target-table change:
+
+```json
+{
+	"id": "10000000-0000-0000-0000-000000000002",
+	"timestamp": "2026-01-15T10:00:01Z",
+	"sourceType": "controller",
+	"schemaVersion": 2,
+	"payload": {
+		"telemetry": {
+			"controllerStatus": "running",
+			"engineHours": 1251.0,
+			"fuelConsumption": 8.2,
+			"serviceCountdownHours": 120
+		}
+	}
+}
+```
+
+### Step 1: The mapping preserves the payload
+
+The stable envelope becomes physical columns. After `DropMappedFields`, `RawRecord` still contains the payload, including the new field:
+
+```text
+MessageId      10000000-0000-0000-0000-000000000002
+SourceType     controller
+SchemaVersion  2
+RawRecord      {"payload":{"telemetry":{...,"serviceCountdownHours":120}}}
+```
+
+Nothing is rejected and no landing-table column is added.
+
+### Step 2: The transform creates a predictable typed row
+
+The approved fields are explicitly cast. `bag_remove_keys()` places the unapproved field in the residual bag:
+
+```text
+ControllerStatus  EngineHours  FuelConsumption  ResidualTelemetry
+running           1251.0       8.2              {"serviceCountdownHours":120}
+```
+
+The typed schema is unchanged, so existing dashboards and queries continue to work.
+
+### Step 3: The update policies produce two outcomes
+
+The controller policy writes the typed row above. In parallel, the drift policy uses `bag_keys()`, `mv-expand`, `set_has_element()`, and `gettype()` to write evidence:
+
+```text
+SourceType  FieldPath             ObservedType  SampleValue
+controller  serviceCountdownHours long          120
+```
+
+This replaces the routine Spark schema comparison: the new field is preserved, processing continues, and reviewers receive concrete evidence.
+
+### Step 4: Review and promote the field
+
+After confirming that the field is consistently numeric and has agreed business meaning, [07-promotion-backfill.kql](kql/07-promotion-backfill.kql) adds `ServiceCountdownHours:real` and revises the transform. New rows, and bounded replay rows, then look like this:
+
+```text
+ControllerStatus  EngineHours  FuelConsumption  ServiceCountdownHours  ResidualTelemetry
+running           1251.0       8.2              120.0                  {}
+```
+
+The value moved from flexible JSON into the governed schema without rebuilding the raw ingestion path.
+
+### A concrete array example
+
+The cooling-unit fixture contains zones `1` and `2`. `mv-expand Zone=Zones` turns that single parent message into two stable child rows:
+
+```text
+DeviceId    ZoneId  OperatingMode  ReturnAirTemperature  SetpointTemperature
+cooling-01  1       cool           2.8                   2.0
+cooling-01  2       defrost        5.1                   4.0
+```
+
+When the next fixture contains `"zones":[]`, it produces zero child rows rather than a variable set of columns.
+
 ## Safety Model
 
 The demo policies use `IsTransactional:false`. A failed transform therefore does not roll back ingestion into `RawTelemetry`, but the corresponding target can miss rows until operators detect and replay the failure. Microsoft generally recommends transactional policies for production consistency. Choose deliberately after testing the failure and replay model.

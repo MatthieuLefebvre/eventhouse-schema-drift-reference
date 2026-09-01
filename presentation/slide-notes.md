@@ -18,33 +18,33 @@ Separate direct cost from operational complexity. Export and Spark startup consu
 
 Use the architecture to identify the raw replay point, typed tables, child rows, and drift evidence. Ordinary target tables can optionally be mirrored to OneLake.
 
-## 5. The seven-step demo journey
+## 5. Meet the message we will follow
 
-Preview exactly what the audience will see. This makes the later code feel like a sequence of proofs instead of disconnected KQL files.
+Read the four telemetry values aloud. The concrete problem is that `serviceCountdownHours: 120` arrived before the target contract was changed. Keep returning to this exact value through promotion.
 
-## 6. Technique 1: preserve future fields
+## 6. Step 1: raw mapping loses nothing
 
-Explain `Path:"$"` as the whole JSON document. `DropMappedFields` removes envelope values already mapped to physical columns while preserving the rest.
+Point to `SourceType=controller` and `SchemaVersion=2` as physical columns. Then point to `120` inside `RawRecord`: `DropMappedFields` preserves the new value without adding a landing-table column.
 
-## 7. Technique 2: guarantee a fixed output
+## 7. Step 2: typed row stays predictable
 
-This is the decisive drift-tolerance pattern. Explicit projection fixes the output contract; `bag_remove_keys` preserves every unknown value in the residual bag.
+Read the resulting row. The approved values are typed columns; the exact new key/value pair is in `ResidualTelemetry`. Existing queries still receive the same schema.
 
-## 8. Technique 3: remove the scheduled export
+## 8. Step 3: policies process it automatically
 
-An update policy reacts to ingestion and calls a stored function. Explain the deliberate `IsTransactional:false` availability tradeoff and required replay monitoring.
+Show the fan-out from one raw row to a typed row and drift evidence. Explain the deliberate `IsTransactional:false` availability tradeoff and required replay monitoring.
 
-## 9. Technique 4: detect keys and expand arrays
+## 9. Step 4: drift becomes review evidence
 
-The same row-expansion primitive handles both unknown key names and array items. No runtime-generated columns are required.
+Read the resulting observation: controller, `serviceCountdownHours`, `long`, and sample `120`. Connect each output to `bag_keys`, `mv-expand`, `set_has_element`, and `gettype`.
 
-## 10. Live proof: what the customer should see
+## 10. A second example: two zones become rows
 
-Pause on each expected result. The strongest proof is that a new field reaches the residual and drift review while normal typed processing continues.
+Use the two fixture rows to make `mv-expand` tangible. The parent has two zones, so the child table has two rows with IDs 1 and 2. The next fixture's empty array creates no row.
 
-## 11. Governed promotion stays simple
+## 11. Step 5: promote the reviewed field
 
-Promotion is not automatic. Add the column, revise the function, compare schemas, and replay a bounded interval. Appended versions require explicit consumer semantics.
+Contrast the exact before and after values. `120` moves from residual JSON to the typed `ServiceCountdownHours` column only after review. Appended replay versions require explicit consumer semantics.
 
 ## 12. Adopt with evidence, not promises
 
