@@ -28,10 +28,11 @@ RED = RGBColor(196, 43, 28)
 WHITE = RGBColor(255, 255, 255)
 
 SLIDES = [
-    {"title": "Handling schema drift in Eventhouse", "bullets": ["A practical alternative to exporting every telemetry batch to Spark", "Raw messages stay available; reporting tables stay stable"]},
-    {"title": "Where we started", "bullets": ["Telemetry lands in Eventhouse, then a notebook reads it back out", "Spark infers and flattens the JSON before writing Delta", "Watermarks, drift buffers, and merge jobs keep the batches coordinated"], "visual": "spark"},
-    {"title": "The extra work adds up", "bullets": ["Each run starts Spark and exports another batch", "Parallel connector reads can compete for export capacity", "A parsing problem now has its own scheduling and recovery process", "We only want to remove the work Eventhouse can already do"], "visual": "cost"},
-    {"title": "The revised data path", "bullets": ["Keep one raw copy for investigation and replay", "Use update policies to fill ordinary typed tables", "Leave unfamiliar fields in residual JSON", "Record drift in a separate table for review"], "visual": "architecture"},
+    {"title": "Handling schema drift in Eventhouse", "bullets": ["A reusable pattern for JSON that changes over time", "Accept new data without making downstream schemas unpredictable"]},
+    {"title": "Schema drift is more than a new field", "bullets": ["A producer adds a measurement", "A number starts arriving as text", "A property disappears from some messages", "A nested object changes shape", "An array contains a different number of items"], "visual": "drift"},
+    {"title": "Flexible input, stable output", "bullets": ["Producers need room to evolve their messages", "Reports and APIs need columns they can rely on", "Rejecting every change loses useful data", "Accepting every key as a column creates an unstable contract", "The design has to serve both sides"], "visual": "contract"},
+    {"title": "The five principles", "bullets": ["Keep the original message for investigation and replay", "Separate the input shape from the consumer contract", "Preserve unfamiliar values in residual JSON", "Detect drift without stopping known-field processing", "Promote a field only after review"], "visual": "principles"},
+    {"title": "How the pieces fit together", "bullets": ["RawTelemetry is the recovery point", "Stored functions create fixed typed rows", "Update policies run those functions on arrival", "A separate path records drift for review", "Arrays are written as child rows"], "visual": "architecture"},
     {"title": "A new field arrives", "bullets": ["Controller 01 is still reporting its usual measurements", "Firmware version 2 adds serviceCountdownHours: 120", "There is no matching target column yet", "The value must survive without holding up the rest of the row"], "code": '"sourceType":"controller",\n"schemaVersion":2,\n"telemetry": {\n  "controllerStatus":"running",\n  "engineHours":1251.0,\n  "fuelConsumption":8.2,\n  "serviceCountdownHours":120\n}'},
     {"title": "First, keep the whole payload", "bullets": ["A few envelope values are mapped to columns", "DropMappedFields leaves everything else in RawRecord", "The landing table does not change when the payload does"], "code": 'SourceType     controller\nSchemaVersion  2\nRawRecord      {\n "payload":{"telemetry":{\n  ...,\n  "serviceCountdownHours":120\n }}}'},
     {"title": "Then write the fields we know", "bullets": ["The transform casts each approved value explicitly", "bag_remove_keys leaves the new property in ResidualTelemetry", "Reports continue to see the same columns as before"], "code": 'ControllerStatus  running\nEngineHours       1251.0\nFuelConsumption   8.2\nResidualTelemetry {\n "serviceCountdownHours":120\n}'},
@@ -43,7 +44,8 @@ SLIDES = [
     {"title": "Who looks at the ticket?", "bullets": ["Operations checks that ingestion is healthy", "The source owner confirms the firmware change", "The domain owner explains what the field means", "Engineering profiles the data and prepares the change", "Consumer and change owners sign off before deployment"], "visual": "review"},
     {"title": "What the on-call engineer sees", "bullets": ["Is data arriving, and are typed tables keeping up?", "Which new fields appeared after the latest release?", "Are known fields failing type conversion?", "How large is the residual backlog?", "Are arrays producing an unexpected number of rows?"], "visual": "dashboard"},
     {"title": "Not every field becomes a column", "bullets": ["Promote it when the meaning is stable and consumers need it", "Keep it in residual JSON when it is sparse or diagnostic", "Reject or quarantine accidental, malformed, or sensitive data", "Record the decision so the same ticket does not return tomorrow"], "visual": "decision"},
-    {"title": "A sensible way to start", "bullets": ["Shadow one source type before changing the current path", "Measure ingestion cost, latency, array growth, and completeness", "Exercise failure and replay while the blast radius is small", "Remove the Spark reads only after the numbers and outputs agree"], "visual": "adopt"},
+    {"title": "Where this can simplify an existing design", "bullets": ["Some teams currently flatten JSON in Spark, pipelines, or application code", "Keep that processing when it adds capabilities KQL does not provide", "Move routine parsing and drift observation closer to ingestion when it reduces data movement", "Compare both paths with representative volume before cutting over"], "visual": "simplify"},
+    {"title": "A sensible way to start", "bullets": ["Shadow one source type before changing the current path", "Measure ingestion cost, latency, array growth, and completeness", "Exercise failure and replay while the blast radius is small", "Change the existing process only after the numbers and outputs agree"], "visual": "adopt"},
 ]
 
 
@@ -123,11 +125,15 @@ def add_visual(slide, visual):
     labels = {
         "spark": ("EXPORT → SPARK", RED),
         "cost": ("MOVE + INFER + MERGE", AMBER),
+        "drift": ("ADD | REMOVE | RETYPE", AMBER),
+        "contract": ("FLEXIBLE → STABLE", BLUE),
+        "principles": ("KEEP → DETECT → REVIEW", TEAL),
         "journey": ("BUILD → PROVE → PROMOTE", BLUE),
         "proof": ("DRIFT SURVIVES", TEAL),
         "review": ("PROFILE → APPROVE", AMBER),
         "dashboard": ("OPERATIONS VIEW", TEAL),
         "decision": ("3 DECISIONS", BLUE),
+        "simplify": ("MOVE ONLY WHAT FITS", AMBER),
         "adopt": ("SHADOW → BENCHMARK", BLUE),
     }
     word, color = labels.get(visual, ("EVENTHOUSE", BLUE))

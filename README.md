@@ -1,19 +1,114 @@
 # Eventhouse Schema Drift Reference
 
-This repository grew out of a common telemetry problem: JSON payloads change, but the tables used by reports and APIs cannot change every time a device firmware does.
+JSON changes over time. A device firmware adds a measurement, an API starts returning a nested object, or one producer sends a number as text. Those changes are normal. The difficulty is accepting them without losing data, breaking reports, or allowing every incoming property to become a production column automatically.
 
-The example keeps that work in Microsoft Fabric Eventhouse. KQL handles the routine parsing, routing, and drift detection. Spark is still available for jobs that need it, but it is no longer in the path simply to flatten each batch.
+This repository presents one way to handle that problem in Microsoft Fabric Eventhouse. It applies whether data arrives from Event Hubs, Fabric event streams, an SDK, files, or another ingestion path. It also applies whether the current transformation layer uses Spark, pipelines, application code, or no separate processing engine at all.
+
+The central idea is simple: keep the original message, publish a stable view of the fields the business already understands, and hold unfamiliar fields for review. KQL performs those steps as data arrives. People still decide which fields become part of the governed schema.
 
 All names and data are synthetic. Validate the pattern with representative production volume before adoption.
 
-## The Starting Point
+## How To Read This Guide
 
-The design we wanted to simplify looked like this:
+You do not need to read every file to understand the pattern.
 
-1. Data first lands in Eventhouse.
-2. A Spark notebook reads it back through the Kusto connector.
-3. Spark infers the JSON schema, flattens fields, detects changes, and writes Delta tables.
-4. New fields trigger buffering, schema comparison, approval, and another merge job.
+- **New to schema drift:** read *What Counts as Schema Drift?*, *The Five Principles*, and *One Message, End to End*.
+- **Preparing a demo:** continue with *Running the Demo* and the [presenter script](docs/demo-script.md).
+- **Designing a production process:** read the [alert, review, and promotion runbook](docs/alert-review-promotion.md), then the limitations and migration guides under `docs/`.
+- **Ready to deploy the sample:** go to *Demo Setup* and run the KQL files in order.
+
+## Who This Is For
+
+This reference is useful when:
+
+- producers can release JSON changes independently of the analytics team;
+- reports, APIs, or OneLake consumers need predictable columns;
+- new data must not be discarded while its meaning is being reviewed;
+- engineers need to see drift soon after it starts;
+- schema changes require an owner, tests, and an approval trail.
+
+The examples use telemetry, but the same pattern works for application events, audit records, partner feeds, and other semi-structured JSON.
+
+## First, What Counts As Schema Drift?
+
+Schema drift means the shape or type of incoming data differs from the contract the receiving system currently understands. Not all drift has the same risk.
+
+| Change | Example | What can go wrong |
+|---|---|---|
+| A field is added | `serviceCountdownHours: 120` | The value is silently dropped or forces an urgent table change |
+| A known field changes type | `signalStrength: "unknown"` instead of `18` | A cast returns null or downstream calculations fail |
+| A field disappears | `engineHours` is omitted | Consumers may mistake missing data for zero or a valid value |
+| An object changes shape | `modem` gains nested properties | Flattening logic creates unstable columns or misses data |
+| An array changes length | A unit reports zero, two, or five zones | Fixed `Zone1`, `Zone2` columns stop representing the source |
+
+This implementation handles added fields and changing arrays directly. It preserves evidence for type conflicts and missing values, but their business treatment still needs an explicit rule. No technical pattern can infer whether `"unknown"` should mean null, an error, or a new business state.
+
+## The Five Principles
+
+### 1. Keep an untouched recovery point
+
+Store enough of the original message to investigate and replay it later. If a conversion rule is wrong, the raw row lets the team fix the rule and process that time range again. Without the raw value, a failed cast may be impossible to recover.
+
+In this repository, that recovery point is `RawTelemetry.RawRecord`.
+
+### 2. Separate the input shape from the consumer contract
+
+Incoming JSON is flexible; reporting tables should not be. A target table contains only fields with agreed names, meanings, and types. Adding an input property therefore changes the data we received, not the table contract consumers depend on.
+
+This is why the solution does not automatically add a column for every JSON key.
+
+### 3. Preserve what is not understood yet
+
+Unknown does not mean invalid. An unfamiliar property is stored in a dynamic residual bag beside the typed columns. Existing queries can ignore it, while engineers and domain owners still have the value available for investigation.
+
+Here, those holding areas are `ResidualTelemetry` and `ResidualZone`.
+
+### 4. Detect drift separately from processing normal data
+
+Known fields should continue flowing even when a new field appears. A separate drift path records the new field name, observed type, sample value, and timestamps. This gives the review process evidence without pausing every message behind an approval step.
+
+Operational failures and schema discoveries are different events. A raw-to-target gap is an incident; a safely preserved new field is usually a governance task.
+
+### 5. Promote fields deliberately
+
+A field becomes a physical column only after somebody confirms its meaning, unit, type, ownership, usefulness, and historical backfill requirement. Promotion is a reviewed code and metadata change, not a side effect of ingestion.
+
+These five principles are more important than the exact table names or sample domain. When adapting the repository, preserve these boundaries even if the surrounding architecture changes.
+
+## How The Pieces Fit Together
+
+The reference implementation uses one raw table and a few independent paths:
+
+1. The ingestion mapping extracts stable envelope values such as message ID, event time, and source type.
+2. The rest of the JSON stays in `RawRecord`.
+3. Stored KQL functions read approved values, cast them, and write ordinary typed tables.
+4. Unknown values stay in residual dynamic columns.
+5. Another function records drift observations for the dashboard and alerting process.
+6. Array items are expanded into child rows rather than changing the parent schema.
+
+![Eventhouse-native target architecture](docs/images/target-architecture.png)
+
+An **update policy** is the Eventhouse mechanism connecting these steps. When rows arrive in `RawTelemetry`, a policy runs a stored function and writes its fixed output to a target table. Several policies can read the same raw rows: one for controller data, one for gateway data, one for zones, and one for drift observations. They do not need to run in a particular order because each target is independent.
+
+The typed tables are the normal interface for reports and applications. `RawTelemetry` and residual bags are the recovery and investigation layers. `TelemetryDriftObservations` is the operational review layer.
+
+## Terms Used In This Repository
+
+| Term | Meaning here |
+|---|---|
+| Raw table | The first durable Eventhouse table. It retains the incoming message for investigation and replay. |
+| Typed table | A table with named columns and types that reports, APIs, and other consumers can depend on. |
+| `dynamic` | Kusto's type for values such as JSON objects and arrays whose internal shape may vary. |
+| Residual bag | A `dynamic` object containing fields that arrived but are not part of the approved typed contract. |
+| Stored function | Named KQL that reads raw rows and returns the exact columns expected by a target table. |
+| Update policy | Eventhouse configuration that runs a query when new rows are ingested and writes the result to another table. |
+| Drift observation | Evidence that an unfamiliar field arrived: its path, observed type, sample value, and timestamps. |
+| Promotion | The reviewed change that gives a useful field a physical typed column. |
+| Backfill | Reprocessing a bounded period of raw history after a transformation or schema change. |
+
+## One Migration Scenario: Spark Export Processing
+
+The pattern does not require Spark to be present. However, one common starting architecture reads data back out of Eventhouse to infer and flatten each batch:
 
 ```mermaid
 flowchart LR
@@ -26,24 +121,11 @@ flowchart LR
 		MERGE --> DELTA
 ```
 
-There is nothing inherently wrong with those Spark operations. The awkward part is that the data has already landed in Eventhouse, then leaves again for work KQL can do during ingestion. At scale, that means Spark startup time, connector exports, watermarks, buffers, and merge jobs all have to be operated. Concurrent reads can also compete for export capacity.
-
-## The Eventhouse Approach
-
-The reference implementation uses one raw table and a small set of update policies:
-
-![Eventhouse-native target architecture](docs/images/target-architecture.png)
-
-- `RawTelemetry` holds the original message and gives us somewhere to replay from.
-- Stored functions cast the fields we know into stable columns.
-- Update policies call those functions as data arrives.
-- Fields we do not know yet stay in `ResidualTelemetry`; they are not discarded.
-- A separate policy records enough evidence to review the new field later.
-- Repeating arrays, such as cooling zones, are written as child rows.
-
-The result is a deliberately boring contract for downstream consumers. A device can add a property without forcing an immediate table change. When a field is useful and understood, the team promotes it through a normal reviewed change.
+There is nothing inherently wrong with those Spark operations. The opportunity is narrower: if Spark only performs routine JSON parsing, routing, schema comparison, and flattening, those steps can often move into Eventhouse. Work that needs Spark, external libraries, or Lakehouse-scale processing can stay where it is.
 
 ## The KQL That Makes It Work
+
+The next sections connect each principle to its KQL implementation. New readers may prefer to read [One Message, End to End](#one-message-end-to-end) first, then return here for the syntax.
 
 ### Keep the rest of the message
 
