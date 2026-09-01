@@ -1,12 +1,14 @@
 # Eventhouse Schema Drift Reference
 
-This repository is a customer demo and implementation guide for handling evolving IoT JSON directly in Microsoft Fabric Eventhouse. It shows how to replace recurring Spark schema-inference and flattening notebooks with native KQL processing while preserving new fields safely.
+This repository grew out of a common telemetry problem: JSON payloads change, but the tables used by reports and APIs cannot change every time a device firmware does.
+
+The example keeps that work in Microsoft Fabric Eventhouse. KQL handles the routine parsing, routing, and drift detection. Spark is still available for jobs that need it, but it is no longer in the path simply to flatten each batch.
 
 All names and data are synthetic. Validate the pattern with representative production volume before adoption.
 
-## Start With Today's Spark Journey
+## The Starting Point
 
-Many telemetry implementations follow this path:
+The design we wanted to simplify looked like this:
 
 1. Data first lands in Eventhouse.
 2. A Spark notebook reads it back through the Kusto connector.
@@ -24,27 +26,26 @@ flowchart LR
 		MERGE --> DELTA
 ```
 
-This works, but it is less efficient because data leaves the engine that already stores and queries it. Every scheduled notebook adds Spark startup, bulk export, schema inference, watermark, buffer, and merge work. Concurrent connector reads can also compete for export capacity. The architecture is solving a data-shape problem with repeated data movement.
+There is nothing inherently wrong with those Spark operations. The awkward part is that the data has already landed in Eventhouse, then leaves again for work KQL can do during ingestion. At scale, that means Spark startup time, connector exports, watermarks, buffers, and merge jobs all have to be operated. Concurrent reads can also compete for export capacity.
 
-## What This Demo Proves
+## The Eventhouse Approach
 
-The demo builds the following replacement entirely inside Eventhouse:
+The reference implementation uses one raw table and a small set of update policies:
 
 ![Eventhouse-native target architecture](docs/images/target-architecture.png)
 
-- `RawTelemetry` keeps the original message as a replay point.
-- Stored KQL functions cast approved fields into predictable columns.
-- Update policies run those functions automatically when data arrives.
-- Unknown fields remain in `ResidualTelemetry` rather than breaking ingestion.
-- A second policy records new field names, types, samples, and first/last-seen evidence.
-- Arrays become stable child rows with `mv-expand`.
-- Approved fields are promoted with metadata commands and a bounded backfill.
+- `RawTelemetry` holds the original message and gives us somewhere to replay from.
+- Stored functions cast the fields we know into stable columns.
+- Update policies call those functions as data arrives.
+- Fields we do not know yet stay in `ResidualTelemetry`; they are not discarded.
+- A separate policy records enough evidence to review the new field later.
+- Repeating arrays, such as cooling zones, are written as child rows.
 
-Routine telemetry no longer needs a Spark export. Spark or a pipeline can remain as a small control-plane tool for reviewed DDL automation, external calls, or work genuinely outside KQL.
+The result is a deliberately boring contract for downstream consumers. A device can add a property without forcing an immediate table change. When a field is useful and understood, the team promotes it through a normal reviewed change.
 
-## The Four KQL Techniques To Learn
+## The KQL That Makes It Work
 
-### 1. Preserve evolving JSON with `DropMappedFields`
+### Keep the rest of the message
 
 Known routing fields become physical columns while the rest of the document remains available in `RawRecord`:
 
@@ -54,9 +55,9 @@ Known routing fields become physical columns while the rest of the document rema
 {"Column":"RawRecord", "Properties":{"Path":"$", "Transform":"DropMappedFields"}}
 ```
 
-**Why it matters:** a producer can add a field without changing the landing-table schema or losing the new value.
+`DropMappedFields` removes the envelope values already mapped to columns and leaves the rest in `RawRecord`. Adding a property at the source does not require a landing-table change.
 
-### 2. Keep the target schema fixed with explicit projection and `bag_remove_keys()`
+### Be explicit about the typed contract
 
 ```kusto
 | extend Telemetry = todynamic(RawRecord.payload.telemetry)
@@ -69,9 +70,9 @@ Known routing fields become physical columns while the rest of the document rema
 				dynamic(['controllerStatus', 'engineHours', 'fuelConsumption']))
 ```
 
-**Why it matters:** only named columns reach the typed table. Any new key stays in the residual bag, so the function's output shape does not change.
+Only the named columns reach the typed table. `bag_remove_keys()` takes those approved names out of the telemetry bag; whatever remains is stored in `ResidualTelemetry`. This is what keeps the function output stable when the input changes.
 
-### 3. Run the transform automatically with an update policy
+### Run the function as data arrives
 
 ```kusto
 .alter table ControllerTelemetry policy update
@@ -83,9 +84,9 @@ Known routing fields become physical columns while the rest of the document rema
 	"IsTransactional":false}]
 ```
 
-**Why it matters:** Eventhouse transforms each newly ingested batch without a scheduled Spark read. With `IsTransactional:false`, raw ingestion survives a target failure and operators replay from `RawTelemetry` after repair.
+The update policy removes the need for a scheduled connector read. This sample uses `IsTransactional:false`, so a target failure does not reject the raw message. That choice requires monitoring and replay, which are covered later in the repository.
 
-### 4. Turn unknown keys and arrays into rows
+### Turn changing structures into rows
 
 ```kusto
 | mv-expand FieldName = bag_keys(Telemetry) to typeof(string)
@@ -96,25 +97,25 @@ Known routing fields become physical columns while the rest of the document rema
 | mv-expand Zone = Zones
 ```
 
-**Why it matters:** the first expression creates evidence for every unknown field; the second normalizes a variable array without creating runtime-generated columns.
+The first expression creates one observation for each unrecognized field name. The second creates one child row per array item. Neither operation invents columns at runtime.
 
-## Step-By-Step Demo Journey
+## Running the Demo
 
-| Step | Run | Show the customer | Main benefit |
-|---|---|---|---|
-| 1 | [Landing table](kql/01-landing-table.kql) | Physical routing columns plus flexible `RawRecord` | Raw data remains recoverable |
-| 2 | [JSON mapping](kql/02-json-mapping.kql) | `DropMappedFields` captures everything not already mapped | New JSON fields are retained automatically |
-| 3 | [Target tables](kql/03-target-tables.kql) | Stable reporting tables and residual safety-net columns | Consumers get predictable schemas |
-| 4 | [Transform functions](kql/04-flatten-functions.kql) | Explicit casts, `bag_remove_keys()`, and `mv-expand` | KQL replaces routine Spark flattening |
-| 5 | [Update policies](kql/05-update-policies.kql) and [drift policy](kql/06-drift-log.kql) | Ingestion automatically fills typed tables and drift evidence | No scheduled bulk export |
-| 6 | [Synthetic ingestion](kql/10-ingest-samples.kql) and [smoke tests](tests/deployed-smoke-tests.kql) | Normal fields, new fields, a type conflict, two zones, and an empty array | The audience sees the pattern survive real drift cases |
-| 7 | [Promotion and backfill](kql/07-promotion-backfill.kql) | Add an approved column, revise the function, validate, and replay a bounded period | Schema evolution becomes controlled metadata work |
+Run the files in numeric order. Here is what each stop is for:
+
+| Stop | Files | What to look at |
+|---|---|---|
+| Land the message | [01](kql/01-landing-table.kql), [02](kql/02-json-mapping.kql) | Stable envelope columns and the remaining JSON in `RawRecord` |
+| Define the contract | [03](kql/03-target-tables.kql), [04](kql/04-flatten-functions.kql) | Explicit casts, residual bags, and zone expansion |
+| Wire up ingestion | [05](kql/05-update-policies.kql), [06](kql/06-drift-log.kql) | One raw message feeding typed and drift tables |
+| Try the examples | [10](kql/10-ingest-samples.kql), [smoke tests](tests/deployed-smoke-tests.kql) | A new field, a type conflict, two zones, and an empty array |
+| Promote a field | [07](kql/07-promotion-backfill.kql) | The table change, revised function, schema check, and bounded replay |
 
 Use the [presenter demo script](docs/demo-script.md) for narration, expected results, questions to ask, and recovery notes.
 
-## Follow One Message Through The Demo
+## One Message, End to End
 
-Use this controller message from [samples/telemetry.jsonl](samples/telemetry.jsonl) as the story throughout the demonstration. The producer has added `serviceCountdownHours` without coordinating a target-table change:
+The easiest way to understand the pattern is to follow a single controller message from [samples/telemetry.jsonl](samples/telemetry.jsonl). It contains a field the target table has never seen before: `serviceCountdownHours`.
 
 ```json
 {
@@ -133,7 +134,7 @@ Use this controller message from [samples/telemetry.jsonl](samples/telemetry.jso
 }
 ```
 
-### Step 1: The mapping preserves the payload
+### It lands intact
 
 The stable envelope becomes physical columns. After `DropMappedFields`, `RawRecord` still contains the payload, including the new field:
 
@@ -144,9 +145,9 @@ SchemaVersion  2
 RawRecord      {"payload":{"telemetry":{...,"serviceCountdownHours":120}}}
 ```
 
-Nothing is rejected and no landing-table column is added.
+No row is rejected, and the landing table does not need a new column.
 
-### Step 2: The transform creates a predictable typed row
+### Known fields go to the typed table
 
 The approved fields are explicitly cast. `bag_remove_keys()` places the unapproved field in the residual bag:
 
@@ -155,9 +156,9 @@ ControllerStatus  EngineHours  FuelConsumption  ResidualTelemetry
 running           1251.0       8.2              {"serviceCountdownHours":120}
 ```
 
-The typed schema is unchanged, so existing dashboards and queries continue to work.
+The table shape has not changed, so existing queries keep working. The new value is still there if somebody needs it.
 
-### Step 3: The update policies produce two outcomes
+### Drift is recorded separately
 
 The controller policy writes the typed row above. In parallel, the drift policy uses `bag_keys()`, `mv-expand`, `set_has_element()`, and `gettype()` to write evidence:
 
@@ -166,9 +167,9 @@ SourceType  FieldPath             ObservedType  SampleValue
 controller  serviceCountdownHours long          120
 ```
 
-This replaces the routine Spark schema comparison: the new field is preserved, processing continues, and reviewers receive concrete evidence.
+At this point normal processing has continued, and the review queue has a field name, type, sample value, and timestamp to work with.
 
-### Step 4: Review and promote the field
+### The team can promote it later
 
 After confirming that the field is consistently numeric and has agreed business meaning, [07-promotion-backfill.kql](kql/07-promotion-backfill.kql) adds `ServiceCountdownHours:real` and revises the transform. New rows, and bounded replay rows, then look like this:
 
@@ -177,9 +178,9 @@ ControllerStatus  EngineHours  FuelConsumption  ServiceCountdownHours  ResidualT
 running           1251.0       8.2              120.0                  {}
 ```
 
-The value moved from flexible JSON into the governed schema without rebuilding the raw ingestion path.
+The value has moved from flexible JSON into the typed contract. The raw ingestion path did not have to be rebuilt.
 
-### A concrete array example
+### Arrays follow the same idea
 
 The cooling-unit fixture contains zones `1` and `2`. `mv-expand Zone=Zones` turns that single parent message into two stable child rows:
 
