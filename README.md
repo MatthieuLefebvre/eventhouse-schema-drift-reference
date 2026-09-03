@@ -8,13 +8,27 @@ The central idea is simple: keep the original message, publish a stable view of 
 
 All names and data are synthetic. Validate the pattern with representative production volume before adoption.
 
+## Goal And Expected Outcome
+
+The goal of this repository is to demonstrate a governed, Eventhouse-native response to schema drift. It is not an automatic schema-evolution engine. After completing the sample, a team should be able to show that:
+
+- telemetry with new JSON fields still lands without changing the raw table;
+- approved fields continue to populate stable, typed tables;
+- unfamiliar fields remain available in residual JSON instead of being discarded;
+- drift evidence appears in a dedicated table, dashboard, and alerting workflow;
+- arrays become child rows without creating a changing set of columns;
+- a reviewed field can be promoted and backfilled without rebuilding ingestion;
+- routine parsing does not require exporting each batch from Eventhouse to Spark.
+
+The included notebook generates a 30-minute demonstration stream. It is a test-data producer, not the proposed production ingestion architecture. In production, Event Hubs, a Fabric eventstream, an SDK, or another supported source can write to the same `RawTelemetry` contract.
+
 ## How To Read This Guide
 
 You do not need to read every file to understand the pattern.
 
 - **New to schema drift:** read *What Counts as Schema Drift?*, *The Five Principles*, and *One Message, End to End*.
 - **Designing a production process:** read the [alert, review, and promotion runbook](docs/alert-review-promotion.md), then the limitations and migration guides under `docs/`.
-- **Ready to try the implementation:** go to *Deploy the Sample* and run the KQL files in order.
+- **Ready to try the implementation:** go to *Run The Customer Demonstration* and follow the tasks in order.
 
 ## Who This Is For
 
@@ -121,6 +135,20 @@ flowchart LR
 ```
 
 There is nothing inherently wrong with those Spark operations. The opportunity is narrower: if Spark only performs routine JSON parsing, routing, schema comparison, and flattening, those steps can often move into Eventhouse. Work that needs Spark, external libraries, or Lakehouse-scale processing can stay where it is.
+
+### Eventhouse-native KQL compared with Spark over a KQL database
+
+| Consideration | Eventhouse-native approach in this repository | Spark notebook reading from KQL Database |
+|---|---|---|
+| Trigger | Runs as new extents reach the raw table | Usually scheduled or orchestrated as a separate job |
+| Data movement | Transforms inside Eventhouse | Reads or exports data from Eventhouse, then writes another target |
+| Schema contract | Stored functions explicitly project fixed typed outputs | Notebook code infers or reconciles each batch before writing |
+| Unknown fields | Preserved in residual `dynamic` bags and logged as drift evidence | Commonly needs buffer files, control tables, and merge logic |
+| Operational state | Policies, failures, targets, and raw recovery data remain together | Watermarks, retries, cluster sessions, and intermediate storage are separate concerns |
+| Typical latency | Ingestion-time processing | Depends on notebook startup and schedule frequency |
+| Best fit | Continuous routing, casting, JSON inspection, array expansion, and drift capture | Complex libraries, ML, broad joins, large cross-source processing, and advanced Delta workflows |
+
+This is not a claim that KQL replaces Spark. It removes Spark from a narrow hot path when the work is already local to Eventhouse and can be expressed as deterministic per-ingestion transformations. A hybrid design is often appropriate: Eventhouse creates governed typed tables in real time, and Spark consumes those stable tables only for workloads that benefit from Spark.
 
 ## The KQL That Makes It Work
 
@@ -325,19 +353,25 @@ The tiles share four Fabric Real-Time Dashboard parameters:
 - `_assetId` for one or more assets;
 - `_fieldPath` for drift and data-quality fields.
 
-The three value filters are multi-select parameters with **Select all** enabled. See the [dashboard parameter setup](docs/alert-review-promotion.md#dashboard-parameters) for their exact definitions and query-based value lists. The included synthetic events are dated January 15, 2026, so the dashboard time picker must include that date when testing this sample.
+The three value filters are multi-select parameters with **Select all** enabled. See the [dashboard parameter setup](docs/alert-review-promotion.md#dashboard-parameters) for their exact definitions and query-based value lists. The static JSONL events are dated January 15, 2026, so the dashboard time picker must include that date when testing those fixtures. The live notebook uses the current UTC time, so select **Last 30 minutes** or **Last hour** while it runs.
 
 ## Safety Model
 
 The sample policies use `IsTransactional:false`. A failed transform therefore does not roll back ingestion into `RawTelemetry`, but the corresponding target can miss rows until operators detect and replay the failure. Microsoft generally recommends transactional policies for production consistency. Choose deliberately after testing the failure and replay model.
 
-## Deploy the Sample
+## Run The Customer Demonstration
+
+Allow about 45 minutes: 10 to 15 minutes for setup followed by the 30-minute stream. Use a disposable KQL database because the scripts create fixed sample objects and the optional cleanup issues record-deletion commands.
 
 Prerequisites:
 
 - A Microsoft Fabric workspace with an Eventhouse and editable KQL database.
 - Database Admin permission for table, function, policy, and materialized-view commands.
-- A test database. The scripts create fixed sample objects.
+- A Fabric notebook workspace with permission to query and ingest into that database.
+- Capacity available for the notebook session and Eventhouse workload.
+- A test database. Do not run the sample against production tables.
+
+### Task 1: Deploy the Eventhouse objects
 
 Run these files in order:
 
@@ -347,13 +381,59 @@ Run these files in order:
 4. `kql/04-flatten-functions.kql`
 5. `kql/05-update-policies.kql`
 6. `kql/06-drift-log.kql`
-7. `kql/10-ingest-samples.kql`
 
-Then run `tests/deployed-smoke-tests.kql`.
+At this point `RawTelemetry` is the landing table. Its update policies populate the three typed telemetry tables, the zone child table, and `TelemetryDriftObservations` whenever a new raw extent arrives.
 
-Create the optional engineer dashboard by adding each standalone section from `kql/11-dashboard-alert-queries.kql` as a tile. Configure its two `ALERT` sections in Fabric Activator, Logic Apps, or the organization's monitoring platform.
+### Task 2: Validate the deployment with static fixtures
 
-For a live demonstration, import and run the [30-minute Fabric simulator notebook](notebooks/live-stream-simulator.ipynb). It sends small batches with UTC timestamps generated at ingestion time and introduces drift in stages. Each run has a unique tenant identifier, so its raw, typed, zone, and drift rows can be reviewed or removed without deleting other sample data. Keep the first run for dashboard and alert exercises; use the notebook's opt-in cleanup only when the test database must be reset.
+1. Run `kql/10-ingest-samples.kql` to load six known examples.
+2. Run `tests/deployed-smoke-tests.kql`.
+3. Confirm that raw and typed rows exist, unknown fields are preserved, drift observations were created, and the two-zone message produced two child rows.
+
+This quick check separates deployment errors from issues encountered later during the timed demonstration.
+
+### Task 3: Build the dashboard and alerts
+
+Create the optional engineer dashboard by adding the standalone sections from `kql/11-dashboard-alert-queries.kql` as tiles. Use its two `ALERT SIGNAL` sections with Fabric Activator, Logic Apps, or the organization's monitoring platform, and use the matching `ALERT DETAIL` sections for investigation.
+
+Use **Stat** visuals for alert source tiles and trigger when the returned alert count is greater than zero. Keep separate table visuals for investigation details. Dashboard parameters apply to interactive tiles; alert queries deliberately use their own fixed windows so they continue to evaluate when nobody has the dashboard open.
+
+### Task 4: Configure the 30-minute notebook
+
+1. Import [notebooks/live-stream-simulator.ipynb](notebooks/live-stream-simulator.ipynb) into the Fabric workspace.
+2. Open the Eventhouse or KQL database details and copy its **Query URI**.
+3. In the notebook configuration cell, replace `EVENTHOUSE_QUERY_URI` and `KQL_DATABASE`.
+4. Leave `RUN_MINUTES = 30`, `BATCH_INTERVAL_SECONDS = 30`, and `CLEAN_UP = False` for the first run.
+5. Run the package-install, configuration, connection, and event-generator cells in order.
+6. Set the dashboard time range to **Last hour** and leave each multi-select filter on **Select all**.
+
+The notebook authenticates as the signed-in Fabric user. That identity needs permission to ingest and query. Cleanup additionally requires permission to execute record-deletion commands.
+
+### Task 5: Start the live stream and observe drift
+
+Run the notebook's **Run the 30-minute stream** cell and leave it active. Every event receives a new GUID and a UTC timestamp immediately before ingestion. With the default settings, each batch contains four controller, four gateway, and four cooling-unit events.
+
+| Elapsed time | Change introduced | What to observe |
+|---|---|---|
+| 0-5 minutes | Approved fields only | Ingestion rate rises and raw-to-target counts remain aligned |
+| 5 minutes | Controllers add `serviceCountdownHours` | Typed controller rows continue; the value appears in residual JSON and drift review |
+| 10 minutes | One gateway sends `signalStrength: "unknown"` | The explicit integer cast returns null and the conversion-failure tile identifies the row |
+| 12 minutes | Gateways add a nested `modem` object | The object is preserved and appears as an unfamiliar field |
+| 15 minutes | Cooling units add `compressorHealth` | Drift counts and residual backlog increase without changing the typed table schema |
+| 30 minutes | The loop finishes | The notebook prints totals and stops creating events |
+
+Stopping the notebook cell early stops future batches but does not remove data already ingested. The use of `.ingest inline` is intentional for a small, controlled demo; use a production ingestion service for sustained volume.
+
+### Task 6: Verify, review, and decide whether to clean up
+
+1. Run the notebook's verification cell to compare raw, typed, zone, and drift row counts for this run.
+2. Open the dashboard and filter to the simulator assets if needed.
+3. Run `ReviewTelemetryDrift()` and inspect field paths, types, counts, and sample values.
+4. Use `kql/07-promotion-backfill.kql` as the reviewed promotion example for `serviceCountdownHours`.
+5. Keep the first run for dashboard, alert, and governance discussions.
+6. To reset the test database, set `CLEAN_UP = True`, rerun the configuration cell, and run the cleanup cell once.
+
+Each notebook execution creates a unique tenant identifier in the form `tenant-simulator-<run-id>`. Cleanup uses that identifier and deletes dependent drift, zone, and typed rows before deleting raw rows. It does not target the static fixtures or another simulator run.
 
 ## Repository Guide
 
@@ -375,6 +455,14 @@ The [target architecture image](docs/images/target-architecture.png) is generate
 - OneLake availability is optional and applies to ordinary tables. Its batching latency must be validated for each consumer.
 
 See [Architecture](docs/architecture.md) for the end-to-end flow and [Customization Guide](docs/customization-guide.md) before adapting this sample.
+
+## Conclusion And Recommendation
+
+For this use case, Eventhouse should own the real-time schema-drift boundary. A stable raw contract, explicit KQL transforms, residual JSON, update policies, and a governed promotion workflow keep ingestion running while protecting downstream schemas. This reduces routine data movement, notebook scheduling, intermediate storage, and watermark or merge logic compared with using Spark only to read data back from KQL Database and flatten each batch.
+
+Keep Spark where it adds distinct value: cross-system enrichment, specialized Python or JVM libraries, machine learning, very large historical transformations, or advanced Lakehouse and Delta processing. The recommended target is therefore not “KQL instead of Spark everywhere.” It is **KQL for Eventhouse-local, ingestion-time schema control; Spark for downstream workloads that genuinely need a distributed compute engine**.
+
+Before production adoption, shadow the existing pipeline and compare row counts, message IDs, null rates, residual keys, array expansion, drift evidence, latency, and peak capacity consumption. The [migration and validation guide](docs/migration-and-validation.md) defines those acceptance checks.
 
 ## Microsoft Learn References
 

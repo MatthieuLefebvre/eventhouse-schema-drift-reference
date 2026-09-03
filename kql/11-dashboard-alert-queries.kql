@@ -161,9 +161,8 @@ Parents
 | project Hour, ParentMessages, ZoneRows, RowsPerParent
 | order by Hour asc
 
-// ALERT - New field needs triage.
-// Configure the alert to fire when this query returns one or more rows. These
-// illustrative thresholds require repeated evidence across several messages.
+// ALERT DETAIL - New fields needing triage (investigation table).
+// These illustrative thresholds require repeated evidence across messages.
 let AlertWindow = 15m;
 let MinimumObservations = 10;
 TelemetryDriftObservations
@@ -185,8 +184,17 @@ TelemetryDriftObservations
 | project Severity='Medium', SourceType, FieldPath, Observations, AffectedAssets,
     ObservedTypes, SampleValue, FirstSeen, LastSeen
 
-// ALERT - Raw-to-target gap needs immediate operational investigation.
-// Configure the alert to fire when this query returns one or more rows.
+// ALERT SIGNAL - New fields needing triage (Stat visual).
+// Create an Activator alert on this Stat tile when AlertCount is greater than 0.
+let AlertWindow = 15m;
+let MinimumObservations = 10;
+TelemetryDriftObservations
+| where DetectedAt > ago(AlertWindow)
+| summarize Observations=count() by SourceType, FieldPath
+| where Observations >= MinimumObservations
+| summarize AlertCount=count()
+
+// ALERT DETAIL - Raw-to-target gaps (investigation table).
 let AlertWindow = 15m;
 let Raw = RawTelemetry
     | where EventTimestamp > ago(AlertWindow) and MessageType == 'telemetry'
@@ -200,3 +208,19 @@ Raw
 | extend TypedMessages=coalesce(TypedMessages, 0), MissingMessages=RawMessages-coalesce(TypedMessages, 0)
 | where MissingMessages > 0
 | project Severity='High', SourceType, RawMessages, TypedMessages, MissingMessages
+
+// ALERT SIGNAL - Raw-to-target gaps (Stat visual).
+// Create an Activator alert on this Stat tile when AlertCount is greater than 0.
+let AlertWindow = 15m;
+let Raw = RawTelemetry
+    | where EventTimestamp > ago(AlertWindow) and MessageType == 'telemetry'
+    | summarize RawMessages=count() by SourceType;
+let Typed = union
+    (ControllerTelemetry | where EventTimestamp > ago(AlertWindow) | summarize TypedMessages=count() by SourceType='controller'),
+    (GatewayTelemetry | where EventTimestamp > ago(AlertWindow) | summarize TypedMessages=count() by SourceType='gateway'),
+    (CoolingUnitTelemetry | where EventTimestamp > ago(AlertWindow) | summarize TypedMessages=count() by SourceType='cooling_unit');
+Raw
+| join kind=leftouter Typed on SourceType
+| extend MissingMessages=RawMessages-coalesce(TypedMessages, 0)
+| where MissingMessages > 0
+| summarize AlertCount=count()

@@ -35,7 +35,9 @@ An alert query aggregates repeated observations. For example, notify only after 
 
 ## Notification Configuration
 
-Use the `ALERT - New field needs triage` query in [11-dashboard-alert-queries.kql](../kql/11-dashboard-alert-queries.kql) as the signal. Configure Fabric Activator, a Data Activator reflex, Logic Apps, or the organization's existing monitoring platform to evaluate it on a schedule and trigger when the result contains at least one row.
+Use the two `ALERT SIGNAL` queries in [11-dashboard-alert-queries.kql](../kql/11-dashboard-alert-queries.kql) as single-value **Stat** tiles. From each tile, create a Fabric Activator alert that triggers when `AlertCount` is greater than zero. Evaluate the new-field signal every five minutes and the raw-to-target signal every one to five minutes. Add suppression or a cooldown appropriate to the incident process.
+
+The matching `ALERT DETAIL` queries return tables for investigation. They are not the alert source because Real-Time Dashboard alerts do not support table visuals. Keep them as separate dashboard tiles or run them when an alert opens. If another monitoring platform can trigger directly from returned rows, it may use the detail query instead.
 
 Route the notification to:
 
@@ -43,7 +45,7 @@ Route the notification to:
 - The source-system product owner for release confirmation.
 - The data-governance queue or service-management system for auditable review.
 
-The integration should create one ticket per `SourceType + FieldPath`, then update that ticket with later counts instead of opening a ticket for every evaluation.
+The integration should create one ticket per `SourceType + FieldPath`, then update that ticket with later counts instead of opening a ticket for every evaluation. The Stat signal determines whether work exists; the detail query supplies the source, field path, sample, and counts for the ticket.
 
 Example notification:
 
@@ -145,8 +147,10 @@ Recommended layout:
 | Data quality | Conversion failures | Table | Are existing fields changing type? |
 | Governance backlog | Residual fields | Table | Which fields remain unpromoted? |
 | Capacity | Zone row amplification | Time chart | How many child rows does each parent produce? |
+| Alert signal | New fields over threshold | Stat | Does Activator need to open a triage action? |
+| Alert signal | Raw-to-target gaps | Stat | Does data operations need immediate notification? |
 
-Set dashboard auto-refresh to a value appropriate for the source rate and capacity. Keep alert evaluation independent from whether an engineer has the dashboard open.
+Set dashboard auto-refresh to a value appropriate for the source rate and capacity. On each Stat tile, select **Set alert**, create the rule in Activator, and use `AlertCount > 0` as the condition. Keep alert evaluation independent from whether an engineer has the dashboard open.
 
 ### Dashboard parameters
 
@@ -203,4 +207,4 @@ The source selection narrows the asset and field lists. The built-in time range 
 
 The alert queries intentionally do not use dashboard parameters. They use fixed operational windows and continue evaluating when no one has the dashboard open.
 
-The synthetic records use event timestamps from January 15, 2026. Include that date in the dashboard time picker when validating the sample. Restrict raw sample values when telemetry may contain sensitive information, and apply workspace/database permissions consistently to the dashboard.
+The static JSONL records use event timestamps from January 15, 2026. Include that date in the dashboard time picker when validating those fixtures. The simulator notebook uses current UTC timestamps, so use **Last 30 minutes** or **Last hour** during its run. Restrict raw sample values when telemetry may contain sensitive information, and apply workspace/database permissions consistently to the dashboard.
