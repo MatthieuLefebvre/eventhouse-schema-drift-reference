@@ -148,4 +148,52 @@ Recommended layout:
 
 Set dashboard auto-refresh to a value appropriate for the source rate and capacity. Keep alert evaluation independent from whether an engineer has the dashboard open.
 
-For production, add dashboard parameters for time range, source type, asset ID, and field path. Restrict raw sample values when telemetry may contain sensitive information, and apply workspace/database permissions consistently to the dashboard.
+### Dashboard parameters
+
+Create these parameters under **Manage > Parameters** before adding the tile queries:
+
+| Label | Variable | Type | Data type | Source | Default |
+|---|---|---|---|---|---|
+| Time range | `_startTime`, `_endTime` | Built-in time range | Datetime | Dashboard default | Choose an operational window |
+| Source type | `_sourceType` | Multiple selection | String | Query | Select all |
+| Asset ID | `_assetId` | Multiple selection | String | Query | Select all |
+| Field path | `_fieldPath` | Multiple selection | String | Query | Select all |
+
+Enable **Add "Select all" value** for every multiple-selection parameter. The tile queries use `isempty()` so selecting all applies no value restriction.
+
+Use these queries as the parameter sources.
+
+**Source type:**
+
+```kusto
+RawTelemetry
+| where EventTimestamp between (_startTime.._endTime)
+| distinct SourceType
+| order by SourceType asc
+```
+
+**Asset ID:**
+
+```kusto
+RawTelemetry
+| where EventTimestamp between (_startTime.._endTime)
+| where SourceType in (_sourceType) or isempty(_sourceType)
+| distinct AssetId
+| order by AssetId asc
+```
+
+**Field path:**
+
+```kusto
+TelemetryDriftObservations
+| where EventTimestamp between (_startTime.._endTime)
+| where SourceType in (_sourceType) or isempty(_sourceType)
+| distinct FieldPath
+| order by FieldPath asc
+```
+
+The source selection narrows the asset and field lists. The built-in time range controls all seven tiles. Asset filtering applies where rows can be related to an asset, and field filtering applies to drift, conversion-failure, and residual-backlog tiles.
+
+The alert queries intentionally do not use dashboard parameters. They use fixed operational windows and continue evaluating when no one has the dashboard open.
+
+The synthetic records use event timestamps from January 15, 2026. Include that date in the dashboard time picker when validating the sample. Restrict raw sample values when telemetry may contain sensitive information, and apply workspace/database permissions consistently to the dashboard.

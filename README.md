@@ -318,6 +318,15 @@ The [dashboard and alert query pack](kql/11-dashboard-alert-queries.kql) provide
 
 The same query pack includes a medium-severity new-field alert and a high-severity raw-to-target gap alert. Dashboard refresh and alert evaluation are independent: alerts continue running when nobody has the dashboard open.
 
+The tiles share four Fabric Real-Time Dashboard parameters:
+
+- the built-in `_startTime` and `_endTime` time range;
+- `_sourceType` for one or more source families;
+- `_assetId` for one or more assets;
+- `_fieldPath` for drift and data-quality fields.
+
+The three value filters are multi-select parameters with **Select all** enabled. See the [dashboard parameter setup](docs/alert-review-promotion.md#dashboard-parameters) for their exact definitions and query-based value lists. The included synthetic events are dated January 15, 2026, so the dashboard time picker must include that date when testing this sample.
+
 ## Safety Model
 
 The sample policies use `IsTransactional:false`. A failed transform therefore does not roll back ingestion into `RawTelemetry`, but the corresponding target can miss rows until operators detect and replay the failure. Microsoft generally recommends transactional policies for production consistency. Choose deliberately after testing the failure and replay model.
