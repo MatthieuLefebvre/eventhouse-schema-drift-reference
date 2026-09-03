@@ -7,9 +7,22 @@
 // incompatible value, multiple zones, and an empty zone list.
 //
 // multijson means the source contains one complete JSON object per line.
+// Important: use raw.githubusercontent.com. A github.com/.../blob/... link is
+// an HTML page for browsers, not the JSONL file, and ingestion will fail with
+// ExtentId 00000000-0000-0000-0000-000000000000 and HasErrors=true.
 .ingest into table RawTelemetry
-('https://raw.githubusercontent.com/matthieulefebvre-publiccollab/eventhouse-schema-drift-reference/main/samples/telemetry.jsonl')
+('https://raw.githubusercontent.com/MatthieuLefebvre/eventhouse-schema-drift-reference/main/samples/telemetry.jsonl')
 with (
     format='multijson',
     ingestionMappingReference='RawTelemetryJsonMapping'
 )
+
+// Run this after the ingestion operation completes. The expected result is 6.
+RawTelemetry
+| summarize IngestedRows=count()
+
+// If HasErrors is true, replace the example ID below with the OperationId from
+// the .ingest response to retrieve the service's detailed error message.
+// .show ingestion failures
+// | where tostring(OperationId) == '00000000-0000-0000-0000-000000000000'
+// | project FailedOn, Details, RootActivityId, OperationId
