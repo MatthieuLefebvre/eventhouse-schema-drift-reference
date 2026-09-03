@@ -185,8 +185,15 @@ RawTelemetry
 **Field path:**
 
 ```kusto
-TelemetryDriftObservations
-| where EventTimestamp between (_startTime.._endTime)
+let ObservedDriftFields = TelemetryDriftObservations
+    | where EventTimestamp between (_startTime.._endTime)
+    | project SourceType, FieldPath;
+let MonitoredTypedFields = datatable(SourceType:string, FieldPath:string) [
+    'controller',   'payload.telemetry.engineHours',
+    'gateway',      'payload.telemetry.signalStrength',
+    'cooling_unit', 'payload.telemetry.ambientTemperature'
+];
+union ObservedDriftFields, MonitoredTypedFields
 | where SourceType in (_sourceType) or isempty(_sourceType)
 | distinct FieldPath
 | order by FieldPath asc

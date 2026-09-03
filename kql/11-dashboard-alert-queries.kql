@@ -12,6 +12,39 @@
 // docs/alert-review-promotion.md. Alerts deliberately use their own windows so
 // they continue to operate independently from dashboard filter selections.
 
+// PARAMETER QUERY 1 - Source type (_sourceType).
+// Configure as a query-based, multi-select string parameter. Set Value and
+// Display name to SourceType, enable Select all, and make Select all the default.
+RawTelemetry
+| where EventTimestamp between (_startTime.._endTime)
+| distinct SourceType
+| order by SourceType asc
+
+// PARAMETER QUERY 2 - Asset ID (_assetId).
+// Set Value and Display name to AssetId. This list responds to the selected
+// time range and source types, which keeps a large asset list relevant.
+RawTelemetry
+| where EventTimestamp between (_startTime.._endTime)
+| where SourceType in (_sourceType) or isempty(_sourceType)
+| distinct AssetId
+| order by AssetId asc
+
+// PARAMETER QUERY 3 - Field path (_fieldPath).
+// Set Value and Display name to FieldPath. Include both fields discovered by
+// drift detection and known fields checked by the conversion-failure tile.
+let ObservedDriftFields = TelemetryDriftObservations
+    | where EventTimestamp between (_startTime.._endTime)
+    | project SourceType, FieldPath;
+let MonitoredTypedFields = datatable(SourceType:string, FieldPath:string) [
+    'controller',   'payload.telemetry.engineHours',
+    'gateway',      'payload.telemetry.signalStrength',
+    'cooling_unit', 'payload.telemetry.ambientTemperature'
+];
+union ObservedDriftFields, MonitoredTypedFields
+| where SourceType in (_sourceType) or isempty(_sourceType)
+| distinct FieldPath
+| order by FieldPath asc
+
 // TILE 1 - Ingestion rate by source type (time chart).
 RawTelemetry
 | where EventTimestamp between (_startTime.._endTime)
