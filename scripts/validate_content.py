@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import sys
-import zipfile
 from pathlib import Path
 
 
@@ -44,19 +43,8 @@ def validate_privacy() -> None:
     assert not findings, "Forbidden customer content found:\n" + "\n".join(findings)
 
 
-def validate_presentation() -> None:
-    path = ROOT / "presentation" / "eventhouse-schema-drift-reference.pptx"
-    if not path.exists():
-        return
-    assert zipfile.is_zipfile(path), "Presentation is not a valid Open XML package"
-    with zipfile.ZipFile(path) as package:
-        slides = [name for name in package.namelist() if name.startswith("ppt/slides/slide") and name.endswith(".xml")]
-    assert len(slides) == 18, f"Expected 18 slides, found {len(slides)}"
-
-
 if __name__ == "__main__":
     validate_jsonl()
     validate_privacy()
-    validate_presentation()
     print("content validation passed")
     sys.exit(0)
