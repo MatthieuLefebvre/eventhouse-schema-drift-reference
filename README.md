@@ -353,9 +353,12 @@ Then run `tests/deployed-smoke-tests.kql`.
 
 Create the optional engineer dashboard by adding each standalone section from `kql/11-dashboard-alert-queries.kql` as a tile. Configure its two `ALERT` sections in Fabric Activator, Logic Apps, or the organization's monitoring platform.
 
+For a live demonstration, import and run the [30-minute Fabric simulator notebook](notebooks/live-stream-simulator.ipynb). It sends small batches with UTC timestamps generated at ingestion time and introduces drift in stages. Each run has a unique tenant identifier, so its raw, typed, zone, and drift rows can be reviewed or removed without deleting other sample data. Keep the first run for dashboard and alert exercises; use the notebook's opt-in cleanup only when the test database must be reset.
+
 ## Repository Guide
 
 - `kql/`: ordered deployment and operations modules.
+- `notebooks/`: runnable Fabric simulation and demonstration notebooks.
 - `samples/`: synthetic JSON Lines fixtures.
 - `tests/`: pure-query checks and deployed smoke tests.
 - `docs/`: architecture, customization, migration, and operational guidance.
